@@ -13,43 +13,51 @@ $user = new User($db);
 $errors = [];
 $success = false;
 $step = 1;
-$password = null;
+$password = null; // or set a default, or skip password logic
 
-// Step 1: User submits phone and email to get code
+// Step 1: User submits student_id and email to get code
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['send_code'])) {
-    $phone = trim($_POST['phone']);
+    $student_id = trim($_POST['student_id']);
     $email = trim($_POST['email']);
 
-    if (empty($phone) || empty($email)) {
+    if (empty($student_id) || empty($email)) {
         $errors[] = "All fields are required.";
     } else {
-        $userData = $user->getByPhone($phone); // <-- Use phone
+        $userData = $user->getByStudentId($student_id);
         if (!$userData) {
-            $errors[] = "Phone number not found.";
+            $errors[] = "Student ID not found.";
         } elseif (strtolower($userData['email']) !== strtolower($email)) {
             $errors[] = "Email does not match our records.";
         } else {
             // Generate code
             $code = rand(100000, 999999);
             $_SESSION['reset_code'] = $code;
-            $_SESSION['reset_phone'] = $phone;
+            $_SESSION['reset_student_id'] = $student_id;
             $_SESSION['reset_email'] = $email;
-            $_SESSION['reset_code_time'] = time();
+            $_SESSION['reset_code_time'] = time(); // Add this line
+            // TODO: Use a real mailer in production!
             $mail = new PHPMailer(true);
             try {
+                //Server settings
                 $mail->isSMTP();
-                $mail->Host       = 'smtp.gmail.com';
+                $mail->Host       = 'smtp.gmail.com'; // Your SMTP server
                 $mail->SMTPAuth   = true;
-                $mail->Username   = 'francelivia1@gmail.com ';
-                $mail->Password   = 'oueh qpfl iatu xnvo';
+                $mail->Username   = 'francelivia1@gmail.com '; // Your email
+                $mail->Password   = 'oueh qpfl iatu xnvo';    // Your app password (not your Gmail password)
                 $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
                 $mail->Port       = 587;
+
+                //Recipients
                 $mail->setFrom('your_gmail@gmail.com', 'School Portal');
                 $mail->addAddress($email);
+
+                //Content
                 $mail->isHTML(false);
                 $mail->Subject = 'Your Password Reset Code';
                 $mail->Body    = "Your code is: $code";
+
                 $mail->send();
+                // Success, continue as normal
                 $step = 2;
             } catch (Exception $e) {
                 $errors[] = "Could not send email. Mailer Error: {$mail->ErrorInfo}";
@@ -84,10 +92,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reset_password'])) {
         $errors[] = "Invalid code.";
         $step = 2;
     } else {
-        $phone = $_SESSION['reset_phone'];
-        if ($user->updatePasswordByPhone($phone, $new_password)) { // <-- Use phone
+        $student_id = $_SESSION['reset_student_id'];
+        // Pass the plain password:
+        if ($user->updatePassword($student_id, $new_password)) {
             $success = true;
-            unset($_SESSION['reset_code'], $_SESSION['reset_phone'], $_SESSION['reset_email']);
+            unset($_SESSION['reset_code'], $_SESSION['reset_student_id'], $_SESSION['reset_email']);
         } else {
             $errors[] = "Failed to reset password.";
             $step = 2;
@@ -97,10 +106,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reset_password'])) {
 
 // Resend code logic
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['resend_code'])) {
-    if (isset($_SESSION['reset_phone'], $_SESSION['reset_email'])) {
-        $phone = $_SESSION['reset_phone'];
+    if (isset($_SESSION['reset_student_id'], $_SESSION['reset_email'])) {
+        $student_id = $_SESSION['reset_student_id'];
         $email = $_SESSION['reset_email'];
-        $userData = $user->getByPhone($phone); // <-- Use phone
+        $userData = $user->getByStudentId($student_id);
         if ($userData && strtolower($userData['email']) === strtolower($email)) {
             $code = rand(100000, 999999);
             $_SESSION['reset_code'] = $code;
@@ -332,69 +341,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['resend_code'])) {
             margin-left: 10px;
         }
         
-        /* Password Requirements Styles */
         .password-requirements {
-            margin-top: 0.5rem;
-            padding: 0.75rem;
-            background-color: #f8f9fa;
-            border-radius: 0.375rem;
-            border: 1px solid #dee2e6;
-            font-size: 0.75rem;
-            display: none;
-        }
-
-        .password-requirements ul {
-            margin-left: 1.25rem;
-        }
-
-        .password-requirements li {
-            margin-bottom: 0.25rem;
-        }
-
-        .password-requirements li.valid {
-            color: var(--success-green);
-        }
-
-        .password-requirements li.invalid {
-            color: #666;
-        }
-
-        .password-requirements li::before {
-            content: "•";
-            display: inline-block;
-            width: 1em;
-            margin-left: -1em;
-        }
-        
-        .password-strength {
-            font-size: 0.75rem;
-            margin-top: 0.25rem;
-            padding: 0.25rem 0.5rem;
-            border-radius: 0.25rem;
-        }
-        
-        .valid-feedback {
-            color: var(--success-green);
-            background-color: #e8f5e9;
-        }
-        
-        .invalid-feedback {
-            color: var(--error-red);
-            background-color: #ffebee;
-        }
-        
-        .warning-feedback {
-            color: #ff9800;
-            background-color: #fff3e0;
-        }
-        
-        #resend-section {
-            text-align: center;
-            margin-top: 12px;
-        }
-        
-        #countdown {
             font-size: 13px;
+            color: #666;
+            margin-top: 5px;
+        }
+        
+        .requirements-list {
+            display: none;
+            background-color: #f9f9f9;
+            border-radius: 6px;
+            padding: 10px;
+            margin-top: 5px;
+            border-left: 3px solid var(--accent-green);
+        }
+        
+        .requirements-list.active {
+            display: block;
+        }
+        
+        .requirement {
+            margin-bottom: 5px;
+            display: flex;
+            align-items: center;
+        }
+        
+        .requirement-icon {
+            margin-right: 8px;
+            width: 16px;
+            height: 16px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .requirement.valid {
+            color: var(--success-green);
+        }
+        
+        .requirement.invalid {
             color: #666;
         }
     </style>
@@ -425,11 +410,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['resend_code'])) {
             <?php elseif ($step == 1): ?>
                 <form method="POST">
                     <div class="form-group">
-                        <label for="phone">Phone Number</label>
-                        <input type="text" class="form-control" id="phone" name="phone" required>
+                        <label for="student_id">Student ID</label>
+                        <input type="text" class="form-control" id="student_id" name="student_id" required>
                     </div>
                     <div class="form-group">
-                        <label for="email">Email</label>
+                        <label for="email">Moe Email</label>
                         <input type="email" class="form-control" id="email" name="email" required>
                     </div>
                     <button type="submit" class="btn" name="send_code">Send Code</button>
@@ -443,23 +428,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['resend_code'])) {
                     </div>
                     <div class="form-group">
                         <label for="new_password">New Password</label>
-                        <input type="password" class="form-control" id="new_password" name="new_password" required>
-                        <div id="password-requirements" class="password-requirements">
-                            <strong>Password Requirements:</strong>
-                            <ul>
-                                <li id="req-length">At least 8 characters</li>
-                                <li id="req-uppercase">At least 1 uppercase letter</li>
-                                <li id="req-lowercase">At least 1 lowercase letter</li>
-                                <li id="req-number">At least 1 number</li>
-                                <li id="req-special">At least 1 special character</li>
-                            </ul>
+                        <input type="password" class="form-control" id="new_password" name="new_password" required onfocus="showRequirements()" onblur="hideRequirements()" onkeyup="checkPassword()">
+                        <div id="requirements" class="requirements-list">
+                            <div class="requirement invalid" id="length-req">
+                                <span class="requirement-icon">•</span>
+                                At least 8 characters
+                            </div>
+                            <div class="requirement invalid" id="uppercase-req">
+                                <span class="requirement-icon">•</span>
+                                At least 1 uppercase letter
+                            </div>
+                            <div class="requirement invalid" id="lowercase-req">
+                                <span class="requirement-icon">•</span>
+                                At least 1 lowercase letter
+                            </div>
+                            <div class="requirement invalid" id="number-req">
+                                <span class="requirement-icon">•</span>
+                                At least 1 number
+                            </div>
+                            <div class="requirement invalid" id="special-req">
+                                <span class="requirement-icon">•</span>
+                                At least 1 special character
+                            </div>
                         </div>
-                        <div id="password-strength" class="password-strength"></div>
                     </div>
                     <div class="form-group">
                         <label for="confirm_password">Confirm Password</label>
                         <input type="password" class="form-control" id="confirm_password" name="confirm_password" required>
-                        <div id="confirm-feedback" class="password-strength"></div>
                     </div>
                     <button type="submit" class="btn" name="reset_password">Reset Password</button>
                 </form>
@@ -477,7 +472,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['resend_code'])) {
                     }
                 }
                 ?>
-                <div id="resend-section">
+                <div id="resend-section" style="text-align:center;margin-top:12px;">
                     <div id="countdown" class="password-requirements" <?= $canResend ? 'style="display:none;"' : '' ?>>
                         You can resend the code in <span id="resend-timer"><?= $remaining ?></span> seconds.
                     </div>
@@ -486,123 +481,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['resend_code'])) {
                     </form>
                 </div>
                 <script>
-                    // Password requirements and strength checker
-                    const passwordInput = document.getElementById('new_password');
-                    const passwordRequirements = document.getElementById('password-requirements');
-                    const passwordStrengthText = document.getElementById('password-strength');
-                    const confirmInput = document.getElementById('confirm_password');
-                    const confirmFeedback = document.getElementById('confirm-feedback');
-                    
-                    // Get all requirement elements
-                    const reqLength = document.getElementById('req-length');
-                    const reqUppercase = document.getElementById('req-uppercase');
-                    const reqLowercase = document.getElementById('req-lowercase');
-                    const reqNumber = document.getElementById('req-number');
-                    const reqSpecial = document.getElementById('req-special');
-                    
-                    // Show password requirements when password field is focused
-                    passwordInput.addEventListener('focus', function() {
-                        passwordRequirements.style.display = 'block';
-                    });
-                    
-                    // Hide password requirements when password field is empty and blurred
-                    passwordInput.addEventListener('blur', function() {
-                        if (this.value.length === 0) {
-                            passwordRequirements.style.display = 'none';
-                        }
-                    });
-                    
-                    // Check password strength in real-time
-                    passwordInput.addEventListener('input', function() {
-                        const password = this.value;
-                        
-                        // Always show requirements when typing
-                        if (password.length > 0) {
-                            passwordRequirements.style.display = 'block';
-                        } else {
-                            passwordRequirements.style.display = 'none';
-                            passwordStrengthText.textContent = '';
-                            return;
-                        }
-                        
-                        // Check each requirement
-                        const hasLength = password.length >= 8;
-                        const hasUppercase = /[A-Z]/.test(password);
-                        const hasLowercase = /[a-z]/.test(password);
-                        const hasNumber = /[0-9]/.test(password);
-                        const hasSpecial = /[^a-zA-Z0-9]/.test(password);
-                        
-                        // Update requirement indicators
-                        updateRequirement(reqLength, hasLength);
-                        updateRequirement(reqUppercase, hasUppercase);
-                        updateRequirement(reqLowercase, hasLowercase);
-                        updateRequirement(reqNumber, hasNumber);
-                        updateRequirement(reqSpecial, hasSpecial);
-                        
-                        // Overall strength assessment
-                        passwordStrengthText.className = 'password-strength';
-                        
-                        if (password.length < 8) {
-                            passwordStrengthText.textContent = '❌ Password must be at least 8 characters';
-                            passwordStrengthText.className += ' invalid-feedback';
-                        } else {
-                            const strength = [hasUppercase, hasLowercase, hasNumber, hasSpecial].filter(Boolean).length;
-                            
-                            if (strength === 0) {
-                                passwordStrengthText.textContent = '⚠️ Very weak password';
-                                passwordStrengthText.className += ' warning-feedback';
-                            } else if (strength < 2) {
-                                passwordStrengthText.textContent = '⚠️ Weak password';
-                                passwordStrengthText.className += ' warning-feedback';
-                            } else if (strength < 3) {
-                                passwordStrengthText.textContent = '✅ Good password';
-                                passwordStrengthText.className += ' valid-feedback';
-                            } else if (strength < 4) {
-                                passwordStrengthText.textContent = '✅ Strong password';
-                                passwordStrengthText.className += ' valid-feedback';
-                            } else {
-                                passwordStrengthText.textContent = '✅ Very strong password';
-                                passwordStrengthText.className += ' valid-feedback';
-                            }
-                        }
-                        
-                        // Trigger confirm password check
-                        if (confirmInput.value) {
-                            confirmInput.dispatchEvent(new Event('input'));
-                        }
-                    });
-                    
-                    // Function to update requirement display
-                    function updateRequirement(element, isValid) {
-                        if (isValid) {
-                            element.classList.add('valid');
-                            element.classList.remove('invalid');
-                        } else {
-                            element.classList.add('invalid');
-                            element.classList.remove('valid');
-                        }
-                    }
-                    
-                    // Confirm password check
-                    confirmInput.addEventListener('input', function() {
-                        const confirm = this.value;
-                        confirmFeedback.className = 'password-strength';
-                        
-                        if (!confirm) {
-                            confirmFeedback.textContent = '';
-                            return;
-                        }
-                        
-                        if (confirm !== passwordInput.value) {
-                            confirmFeedback.textContent = '❌ Passwords do not match';
-                            confirmFeedback.className += ' invalid-feedback';
-                        } else {
-                            confirmFeedback.textContent = '✅ Passwords match';
-                            confirmFeedback.className += ' valid-feedback';
-                        }
-                    });
-                    
-                    // Resend code countdown timer
                     let timer = <?= $remaining ?>;
                     const el = document.getElementById('resend-timer');
                     const countdown = document.getElementById('countdown');
@@ -618,6 +496,72 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['resend_code'])) {
                                 el.textContent = timer;
                             }
                         }, 1000);
+                    }
+
+                    function showRequirements() {
+                        document.getElementById('requirements').classList.add('active');
+                    }
+
+                    function hideRequirements() {
+                        const password = document.getElementById('new_password').value;
+                        if (password === '') {
+                            document.getElementById('requirements').classList.remove('active');
+                        }
+                    }
+
+                    function checkPassword() {
+                        const password = document.getElementById('new_password').value;
+                        const requirements = document.getElementById('requirements');
+                        
+                        // At least 8 characters
+                        if (password.length >= 8) {
+                            document.getElementById('length-req').classList.remove('invalid');
+                            document.getElementById('length-req').classList.add('valid');
+                        } else {
+                            document.getElementById('length-req').classList.remove('valid');
+                            document.getElementById('length-req').classList.add('invalid');
+                        }
+                        
+                        // At least 1 uppercase letter
+                        if (/[A-Z]/.test(password)) {
+                            document.getElementById('uppercase-req').classList.remove('invalid');
+                            document.getElementById('uppercase-req').classList.add('valid');
+                        } else {
+                            document.getElementById('uppercase-req').classList.remove('valid');
+                            document.getElementById('uppercase-req').classList.add('invalid');
+                        }
+                        
+                        // At least 1 lowercase letter
+                        if (/[a-z]/.test(password)) {
+                            document.getElementById('lowercase-req').classList.remove('invalid');
+                            document.getElementById('lowercase-req').classList.add('valid');
+                        } else {
+                            document.getElementById('lowercase-req').classList.remove('valid');
+                            document.getElementById('lowercase-req').classList.add('invalid');
+                        }
+                        
+                        // At least 1 number
+                        if (/[0-9]/.test(password)) {
+                            document.getElementById('number-req').classList.remove('invalid');
+                            document.getElementById('number-req').classList.add('valid');
+                        } else {
+                            document.getElementById('number-req').classList.remove('valid');
+                            document.getElementById('number-req').classList.add('invalid');
+                        }
+                        
+                        // At least 1 special character
+                        if (/[^a-zA-Z0-9]/.test(password)) {
+                            document.getElementById('special-req').classList.remove('invalid');
+                            document.getElementById('special-req').classList.add('valid');
+                        } else {
+                            document.getElementById('special-req').classList.remove('valid');
+                            document.getElementById('special-req').classList.add('invalid');
+                        }
+                        
+                        // Keep requirements visible if typing
+                        if (password !== '') {
+                            requirements.classList.add('active');
+                        }
                     }
                 </script>
             <?php endif; ?>

@@ -1,306 +1,460 @@
 <?php
 session_start();
-require_once "../classes/OrderManager.php";
 require_once "../classes/DB.php";
 
-$db = new DB();
-$conn = $db->getConnection();
-$orderManager = new OrderManager();
+if (!isset($_SESSION['user_id'])) {
+    header("Location: login.php");
+    exit;
+}
 
-// Get completed and cancelled orders
-$stmt = $conn->prepare("SELECT * FROM orders WHERE status IN ('Completed', 'Cancelled') ORDER BY created_at DESC");
+$user_id = $_SESSION['user_id'];
+$pdo = (new DB())->getConnection();
+
+// Pagination setup
+$ordersPerPage = 10;
+$page = isset($_GET['page']) && is_numeric($_GET['page']) ? (int)$_GET['page'] : 1;
+$offset = ($page - 1) * $ordersPerPage;
+
+// Get total order count for this user (excluding Pending and Shipping)
+$countStmt = $pdo->prepare("SELECT COUNT(*) FROM orders WHERE user_id = ? AND status NOT IN ('Pending', 'Shipping')");
+$countStmt->execute([$user_id]);
+$totalOrders = $countStmt->fetchColumn();
+$totalPages = ceil($totalOrders / $ordersPerPage);
+
+// Fetch paginated orders (excluding Pending and Shipping)
+$stmt = $pdo->prepare("
+    SELECT o.*, 
+           pm.method_name AS payment_method, 
+           d.option_name AS delivery_option
+    FROM orders o
+    LEFT JOIN payment_methods pm ON o.payment_method_id = pm.id
+    LEFT JOIN delivery_options d ON o.delivery_option_id = d.id
+    WHERE o.user_id = ? AND o.status NOT IN ('Pending', 'Shipping')
+    ORDER BY o.created_at DESC
+    LIMIT ? OFFSET ?
+");
+$stmt->bindValue(1, $user_id, PDO::PARAM_INT);
+$stmt->bindValue(2, $ordersPerPage, PDO::PARAM_INT);
+$stmt->bindValue(3, $offset, PDO::PARAM_INT);
 $stmt->execute();
 $orders = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-function highlight($text, $search) {
-    if (!$search) return htmlspecialchars($text);
-    return preg_replace(
-        '/' . preg_quote($search, '/') . '/i',
-        '<span style="background:#ffe0b2;">$0</span>',
-        htmlspecialchars($text)
-    );
-}
-
-$search = isset($_GET['search']) ? trim($_GET['search']) : '';
-if ($search !== '') {
-    $orders = array_filter($orders, function($order) use ($search) {
-        return stripos($order['order_number'], $search) !== false
-            || stripos($order['student_name'], $search) !== false
-            || stripos($order['class_name'], $search) !== false
-            || stripos($order['status'], $search) !== false
-            || stripos($order['id'], $search) !== false;
-    });
-}
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Order History | Admin Panel</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Order History</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
     <style>
+        /* Color Scheme */
         :root {
-            --primary-color: #fff3e0;
-            --primary-accent: #ffb74d;
-            --primary-dark: #fb8c00;
-            --secondary-color: rgb(215, 215, 215);
-            --text-color: #e65100;
-            --text-light: #ff9800;
-            --border-color: #ffe0b2;
+            --primary-light: #f9fbe7; /* Light yellow */
+            --primary-light-2: #f0f4c3; /* Slightly darker yellow */
+            --secondary-light: #dcedc8; /* Light green */
+            --secondary-medium: #c5e1a5; /* Medium green */
+            --accent-green: #8bc34a; /* Vibrant green */
+            --accent-dark: #689f38; /* Darker green */
+            --text-primary: #2e3a30; /* Dark green-gray */
+            --text-secondary: #5a6b5f; /* Medium green-gray */
+            --border-light: #e0e0e0;
             --white: #ffffff;
+            --status-pending: #ffb74d;
+            --status-shipping: #64b5f6;
+            --status-completed: #81c784;
+            --status-cancelled: #e57373;
+        }
+
+        /* Base Styles */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
         }
 
         body {
-            background-color: #fafafa;
-            color: #333;
-            font-family: 'Roboto', 'Helvetica Neue', Arial, sans-serif;
-            margin: 0;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: var(--primary-light);
+            color: var(--text-primary);
+            line-height: 1.6;
             padding: 0;
-            line-height: 1.5;
+            margin: 0;
         }
 
+        /* Typography */
+        h1, h2, h3, h4 {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        h1 {
+            font-size: 1.8rem;
+            margin-bottom: 1.5rem;
+        }
+
+        /* Layout */
         .container {
-            max-width: 1100px;
-            margin: 30px auto;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem 1.5rem;
+        }
+
+        /* Card Component */
+        .card {
             background: var(--white);
-            border-radius: 4px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-            overflow: hidden;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+            padding: 2rem;
+            margin-bottom: 2rem;
         }
 
-        .header {
-            background-color: var(--primary-color);
-            padding: 18px 24px;
-            border-bottom: 1px solid var(--border-color);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .breadcrumb {
-            font-size: 16px;
-            color: var(--text-light);
-        }
-
-        .breadcrumb a {
-            color: var(--text-color);
-            text-decoration: none;
-        }
-
-        .breadcrumb a:hover {
-            text-decoration: underline;
-        }
-
-        h2 {
-            color: var(--text-color);
-            font-size: 22px;
-            font-weight: 500;
-            margin: 24px 24px 12px;
-        }
-
-        .search-form {
-            display: flex;
-            align-items: center;
-            padding: 0 24px 18px;
-        }
-
-        .search-form input[type="text"] {
-            padding: 10px 14px;
-            border: 1px solid var(--border-color);
-            border-radius: 3px;
-            width: 300px;
-            font-size: 16px;
-            margin-right: 8px;
-        }
-
-        .search-form button {
-            padding: 10px 15px;
-            background-color: var(--primary-accent);
-            color: white;
-            border: none;
-            border-radius: 3px;
-            cursor: pointer;
-            font-size: 16px;
-            transition: background 0.2s;
-        }
-
-        .search-form button:hover {
-            background-color: var(--primary-dark);
+        /* Table Styles */
+        .table-container {
+            overflow-x: auto;
+            margin-bottom: 2rem;
         }
 
         table {
             width: 100%;
-            border-collapse: collapse;
-            font-size: 16px;
-            margin-bottom: 30px;
+            border-collapse: separate;
+            border-spacing: 0;
+            min-width: 800px;
         }
 
-        th {
-            background-color: var(--primary-color);
-            color: var(--text-color);
+        thead th {
+            background-color: var(--secondary-light);
+            color: var(--text-primary);
+            font-weight: 600;
             text-align: left;
-            padding: 14px 15px;
-            font-weight: 500;
-            border-bottom: 1px solid var(--border-color);
+            padding: 1rem 1.25rem;
+            position: sticky;
+            top: 0;
         }
 
-        td {
-            padding: 14px 15px;
-            border-bottom: 1px solid var(--border-color);
+        tbody tr {
+            transition: background-color 0.2s ease;
+        }
+
+        tbody tr:hover {
+            background-color: var(--primary-light);
+        }
+
+        tbody td {
+            padding: 1rem 1.25rem;
+            border-bottom: 1px solid var(--border-light);
             vertical-align: middle;
         }
 
-        tr:hover {
-            background-color: var(--secondary-color);
+        tbody tr:last-child td {
+            border-bottom: none;
         }
 
-        .btn {
+        /* Status Badges */
+        .status-badge {
             display: inline-block;
-            padding: 8px 14px;
-            font-size: 16px;
-            border-radius: 3px;
-            text-decoration: none;
-            transition: all 0.2s;
-            background-color: var(--primary-accent);
+            padding: 0.35rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
             color: white;
-            border: none;
+        }
+
+        .status-pending {
+            background-color: var(--status-pending);
+        }
+
+        .status-shipping {
+            background-color: var(--status-shipping);
+        }
+
+        .status-completed {
+            background-color: var(--status-completed);
+        }
+
+        .status-cancelled {
+            background-color: var(--status-cancelled);
+        }
+
+        /* Buttons */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            font-weight: 500;
+            font-size: 0.875rem;
             cursor: pointer;
-        }
-
-        .btn:hover {
-            background-color: var(--primary-dark);
-        }
-
-        .back-link {
-            display: inline-block;
-            margin: 20px;
-            color: var(--text-light);
+            transition: all 0.2s ease;
             text-decoration: none;
-            font-size: 16px;
+            border: none;
+        }
+
+        .btn-primary {
+            background-color: var(--accent-green);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background-color: var(--accent-dark);
+            transform: translateY(-1px);
+        }
+
+        .btn-outline {
+            background-color: transparent;
+            border: 1px solid var(--accent-green);
+            color: var(--accent-green);
+        }
+
+        .btn-outline:hover {
+            background-color: rgba(139, 195, 74, 0.1);
+        }
+
+        /* Pagination */
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-top: 2rem;
+            gap: 0.5rem;
+        }
+
+        .page-item {
+            list-style: none;
+        }
+
+        .page-link {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 2.5rem;
+            height: 2.5rem;
+            border-radius: 6px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            text-decoration: none;
+            transition: all 0.2s ease;
+        }
+
+        .page-link:hover {
+            background-color: var(--secondary-light);
+            color: var(--text-primary);
+        }
+
+        .page-link.active {
+            background-color: var(--accent-green);
+            color: white;
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 3rem 0;
+        }
+
+        .empty-state-icon {
+            font-size: 3rem;
+            color: var(--secondary-medium);
+            margin-bottom: 1rem;
+        }
+
+        .empty-state-text {
+            color: var(--text-secondary);
+            margin-bottom: 1.5rem;
+        }
+
+        /* Back Link */
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            color: var(--accent-green);
+            text-decoration: none;
+            font-weight: 500;
+            margin-top: 1.5rem;
+            transition: color 0.2s ease;
         }
 
         .back-link:hover {
-            color: var(--text-color);
+            color: var(--accent-dark);
             text-decoration: underline;
         }
 
-        .empty-state {
-            padding: 30px 20px;
-            text-align: center;
-            color: var(--text-light);
-            font-size: 16px;
+        .back-link svg {
+            margin-right: 0.5rem;
         }
 
-        @media screen and (max-width: 991.98px) {
+        /* Responsive Adjustments */
+        @media (max-width: 768px) {
             .container {
-                margin: 20px;
+                padding: 1.5rem 1rem;
             }
-            .search-form input[type="text"] {
-                width: 250px;
+            
+            .card {
+                padding: 1.5rem;
+            }
+            
+            h1 {
+                font-size: 1.5rem;
+            }
+            
+            thead th, tbody td {
+                padding: 0.75rem;
             }
         }
 
-        @media screen and (max-width: 767.98px) {
-            .header {
-                flex-direction: column;
-                align-items: flex-start;
-                gap: 12px;
-                padding: 15px;
+        @media (max-width: 576px) {
+            .container {
+                padding: 1rem 0.75rem;
             }
-            h2 {
-                margin: 15px 15px 8px;
-                font-size: 20px;
+            
+            .card {
+                padding: 1.25rem;
             }
-            .search-form {
-                flex-direction: column;
-                align-items: stretch;
-                padding: 0 15px 15px;
+            
+            .pagination {
+                flex-wrap: wrap;
             }
-            .search-form input[type="text"] {
-                width: 100%;
-                margin-right: 0;
-                margin-bottom: 10px;
-            }
+        }
+
+        /* Mobile table adjustments */
+        @media (max-width: 640px) {
             table {
+                min-width: 100%;
+            }
+            
+            thead {
+                display: none;
+            }
+            
+            tbody tr {
                 display: block;
-                overflow-x: auto;
-                white-space: nowrap;
-                -webkit-overflow-scrolling: touch;
+                margin-bottom: 1rem;
+                border: 1px solid var(--border-light);
+                border-radius: 8px;
+                padding: 0.75rem;
             }
-            .btn {
-                padding: 6px 10px;
-                font-size: 14px;
+            
+            tbody td {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 0.5rem 0;
+                border-bottom: none;
             }
-        }
-
-        @media screen and (max-width: 575.98px) {
-            .container {
-                margin: 10px;
+            
+            tbody td::before {
+                content: attr(data-label);
+                font-weight: 600;
+                margin-right: auto;
+                padding-right: 1rem;
+                color: var(--text-secondary);
             }
-            th, td {
-                padding: 10px 12px;
-                font-size: 14px;
+            
+            tbody td:last-child {
+                padding-bottom: 0;
             }
-            .empty-state {
-                padding: 20px 15px;
-                font-size: 15px;
-            }
-            .back-link {
-                margin: 15px;
-                font-size: 15px;
+            
+            .status-badge, .btn {
+                margin-left: auto;
             }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="header">
-            <div class="breadcrumb">
-                <a href="dashboard.php">Dashboard</a> / Order History
-            </div>
-        </div>
-        <h2>Order History</h2>
-        <form class="search-form" method="GET">
-            <input type="text" name="search" value="<?= htmlspecialchars($search) ?>" placeholder="Search orders by student name, ID...">
-            <button type="submit">Search</button>
-        </form>
-        <table>
-            <thead>
-                <tr>
-                    <th>#</th>
-                    <th>Order ID</th>
-                    <th>Student Name</th>
-                    <th>Class</th>
-                    <th>Total</th>
-                    <th>Status</th>
-                    <th>Date</th>
-                    <th>View Items</th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php if (empty($orders)): ?>
-                    <tr>
-                        <td colspan="8" class="empty-state">No completed or cancelled orders found.</td>
-                    </tr>
-                <?php else: ?>
-                    <?php foreach ($orders as $i => $order): ?>
-                        <tr>
-                            <td><?= $i + 1 ?></td>
-                            <td><?= highlight($order['order_number'] ?? $order['id'], $search) ?></td>
-                            <td><?= highlight($order['student_name'] ?? 'Guest', $search) ?></td>
-                            <td><?= highlight($order['class_name'] ?? 'Unknown', $search) ?></td>
-                            <td><?= highlight('RM' . number_format($order['total_amount'], 2), $search) ?></td>
-                            <td><?= highlight($order['status'], $search) ?></td>
-                            <td><?= highlight(date('Y-m-d H:i', strtotime($order['created_at'])), $search) ?></td>
-                            <td>
-                                <a href="order_details.php?id=<?= $order['id'] ?>" class="btn">View</a>
-                            </td>
-                        </tr>
-                    <?php endforeach; ?>
+        <div class="card">
+            <h1>Your Order History</h1>
+            
+            <?php if (count($orders) === 0): ?>
+                <div class="empty-state">
+                    <div class="empty-state-icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <line x1="12" y1="8" x2="12" y2="12"></line>
+                            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                        </svg>
+                    </div>
+                    <h3>No Orders Found</h3>
+                    <p class="empty-state-text">You haven't placed any orders yet.</p>
+                    <a href="products.php" class="btn btn-primary">Browse Products</a>
+                </div>
+            <?php else: ?>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Order ID</th>
+                                <th>Date</th>
+                                <th>Total (RM)</th>
+                                <th>Status</th>
+                                <th>Payment</th>
+                                <th>Delivery</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php 
+                            $rowNum = ($page - 1) * $ordersPerPage + 1; 
+                            foreach ($orders as $order): ?>
+                                <tr>
+                                    <td data-label="#"><?= $rowNum++; ?></td>
+                                    <td data-label="Order ID"><?= htmlspecialchars($order['order_number']) ?></td>
+                                    <td data-label="Date"><?= date('M j, Y', strtotime($order['created_at'])) ?></td>
+                                    <td data-label="Total (RM)"><?= number_format($order['total_amount'], 2) ?></td>
+                                    <td data-label="Status">
+                                        <?php if ($order['status'] === 'Completed'): ?>
+                                            <span class="status-badge status-completed">Completed</span>
+                                        <?php elseif ($order['status'] === 'Cancelled'): ?>
+                                            <span class="status-badge status-cancelled">Cancelled</span>
+                                        <?php else: ?>
+                                            <?= htmlspecialchars($order['status']) ?>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td data-label="Payment"><?= htmlspecialchars($order['payment_method']) ?></td>
+                                    <td data-label="Delivery"><?= htmlspecialchars($order['delivery_option']) ?></td>
+                                    <td data-label="Action">
+                                        <a href="receipt.php?order_id=<?= $order['id'] ?>" class="btn btn-outline">View</a>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <?php if ($totalPages > 1): ?>
+                    <ul class="pagination">
+                        <?php if ($page > 1): ?>
+                            <li class="page-item">
+                                <a href="?page=<?= $page-1 ?>" class="page-link">&laquo;</a>
+                            </li>
+                        <?php endif; ?>
+                        
+                        <?php for ($p = 1; $p <= $totalPages; $p++): ?>
+                            <li class="page-item">
+                                <a href="?page=<?= $p ?>" class="page-link <?= $p == $page ? 'active' : '' ?>"><?= $p ?></a>
+                            </li>
+                        <?php endfor; ?>
+                        
+                        <?php if ($page < $totalPages): ?>
+                            <li class="page-item">
+                                <a href="?page=<?= $page+1 ?>" class="page-link">&raquo;</a>
+                            </li>
+                        <?php endif; ?>
+                    </ul>
                 <?php endif; ?>
-            </tbody>
-        </table>
-        <a href="dashboard.php" class="back-link">← Back to Dashboard</a>
+            <?php endif; ?>
+            
+            <a href="products.php" class="back-link">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="19" y1="12" x2="5" y2="12"></line>
+                    <polyline points="12 19 5 12 12 5"></polyline>
+                </svg>
+                Back to Products
+            </a>
+        </div>
     </div>
 </body>
 </html>

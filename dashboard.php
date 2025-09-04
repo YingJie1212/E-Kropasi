@@ -1,1929 +1,1307 @@
 <?php
-ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
-error_reporting(E_ALL);
-date_default_timezone_set('Asia/Kuala_Lumpur');
-
-// Include necessary files
-include($_SERVER['DOCUMENT_ROOT'] . '/school_project/includes/auth.php');
-require_once "../classes/OrderManager.php";
-require_once "../classes/Product.php";
-require_once "../classes/DB.php";
-
-// Initialize classes
-$orderManager = new OrderManager();
-$product = new Product();
-
-// Fetch necessary data
-$pendingOrdersCount = $orderManager->countOrdersByStatus('Pending');
-$shippingOrdersCount = $orderManager->countOrdersByStatus('Shipping');
-$pendingAndShippingOrdersCount = $pendingOrdersCount + $shippingOrdersCount;
-$lowStockCount = $product->countLowStock(10); // 10 is the threshold
-
-// Create an instance of your database connection class
-$db = new DB();
-$conn = $db->getConnection();
-
-// Get admin_id from session and fetch admin info
-$admin_id = $_SESSION['admin_id']; // Get from session
-
-// Fetch admin info from DB using PDO
-$stmt = $conn->prepare("SELECT id, name, email, is_admin FROM users WHERE id = :id");
-$stmt->bindParam(':id', $admin_id, PDO::PARAM_INT);
-$stmt->execute();
-$adminData = $stmt->fetch(PDO::FETCH_ASSOC);
-
-// Set safe defaults to avoid deprecated warnings
-if ($adminData) {
-    $admin_id = $adminData['id'];
-    $admin_name = $adminData['name'] ?? 'Admin';
-    $admin_email = $adminData['email'] ?? '';
-    $is_admin = $adminData['is_admin'] ?? 0;
-    $_SESSION['is_admin'] = $is_admin;
-    $_SESSION['admin_name'] = $admin_name;
-} else {
-    $admin_id = 0;
-    $admin_name = 'Admin';
-    $admin_email = '';
-    $is_admin = 0;
-    $_SESSION['is_admin'] = $is_admin;
-    $_SESSION['admin_name'] = $admin_name;
-}
-
-// Set role based on is_admin value
-if ($is_admin == 2) {
-    $admin_role = "Super Administrator";
-} elseif ($is_admin == 1) {
-    $admin_role = "Administrator";
-} else {
-    $admin_role = "User";
-}
-
-$last_login = date("M j, Y g:i A", strtotime("-1 hour"));
-
-// Language handling
-$available_languages = ['en' => 'English', 'ms' => 'Malay', 'zh' => 'Chinese'];
-$default_language = 'en';
-
-// Check if language is set in session
-if (!isset($_SESSION['language'])) {
-    $_SESSION['language'] = $default_language;
-}
-
-// Check if language change is requested
-if (isset($_GET['lang']) && array_key_exists($_GET['lang'], $available_languages)) {
-    $_SESSION['language'] = $_GET['lang'];
-}
-
-$current_language = $_SESSION['language'];
-
-// Translation arrays
-$translations = [
-    'en' => [
-        'dashboard' => 'Dashboard',
-        'overview' => 'Overview',
-        'welcome_back' => 'Welcome back',
-        'happening_today' => 'Here\'s what\'s happening today',
-        'management' => 'Management',
-        'products' => 'Products',
-        'categories' => 'Categories',
-        'counter' => 'Counter',
-        'administration' => 'Administration',
-        'students' => 'Students',
-        'admins' => 'Admins',
-        'orders' => 'Orders',
-        'packages' => 'Packages',
-        'monthly_report' => 'Monthly Report',
-        'product_management' => 'Product Management',
-        'manage_inventory' => 'Manage inventory and product details',
-        'view_products' => 'View Products',
-        'student_administration' => 'Student Administration',
-        'manage_student_accounts' => 'Manage student accounts',
-        'view_students' => 'View Students',
-        'order_processing' => 'Order Processing',
-        'process_track_orders' => 'Process and track orders',
-        'view_orders' => 'View Orders',
-        'counter_system' => 'Counter System',
-        'process_student_purchases' => 'Process student purchases',
-        'go_to_counter' => 'Go to Counter',
-        'admin_management' => 'Admin Management',
-        'manage_admin_accounts' => 'Manage administrator accounts',
-        'view_admins' => 'View Admins',
-        'packages_management' => 'Packages',
-        'manage_product_packages' => 'Manage product packages',
-        'view_packages' => 'View Packages',
-        'account_settings' => 'Account Settings',
-        'school_settings' => 'School Settings',
-        'logout' => 'Logout',
-        'session_expires' => 'Session expires in 30 minutes',
-        'last_login' => 'Last login',
-        'low_stock' => 'Low Stock',
-        'to_process' => 'To Process',
-        'main_navigation' => 'Main Navigation',
-        'copyright' => 'Copyright',
-    ],
-    'ms' => [
-        'dashboard' => 'Papan Pemuka',
-        'overview' => 'Gambaran Keseluruhan',
-        'welcome_back' => 'Selamat kembali',
-        'happening_today' => 'Inilah yang berlaku hari ini',
-        'management' => 'Pengurusan',
-        'products' => 'Produk',
-        'categories' => 'Kategori',
-        'counter' => 'Kaunter',
-        'administration' => 'Pentadbiran',
-        'students' => 'Pelajar',
-        'admins' => 'Pentadbir',
-        'orders' => 'Pesanan',
-        'packages' => 'Pakej',
-        'monthly_report' => 'Laporan Bulanan',
-        'product_management' => 'Pengurusan Produk',
-        'manage_inventory' => 'Urus inventori dan butiran produk',
-        'view_products' => 'Lihat Produk',
-        'student_administration' => 'Pentadbiran Pelajar',
-        'manage_student_accounts' => 'Urus akaun pelajar',
-        'view_students' => 'Lihat Pelajar',
-        'order_processing' => 'Pemprosesan Pesanan',
-        'process_track_orders' => 'Proses dan jejak pesanan',
-        'view_orders' => 'Lihat Pesanan',
-        'counter_system' => 'Sistem Kaunter',
-        'process_student_purchases' => 'Proses pembelian pelajar',
-        'go_to_counter' => 'Pergi ke Kaunter',
-        'admin_management' => 'Pengurusan Pentadbir',
-        'manage_admin_accounts' => 'Urus akaun pentadbir',
-        'view_admins' => 'Lihat Pentadbir',
-        'packages_management' => 'Pakej',
-        'manage_product_packages' => 'Urus pakej produk',
-        'view_packages' => 'Lihat Pakej',
-        'account_settings' => 'Tetapan Akaun',
-        'school_settings' => 'Tetapan Sekolah',
-        'logout' => 'Log Keluar',
-        'session_expires' => 'Sesi tamat dalam 30 minit',
-        'last_login' => 'Log masuk terakhir',
-        'low_stock' => 'Stok Rendah',
-        'to_process' => 'Untuk Diproses',
-        'main_navigation' => 'Navigasi Utama',
-        'copyright' => 'Hak Cipta',
-    ],
-    'zh' => [
-        'dashboard' => '仪表板',
-        'overview' => '概览',
-        'welcome_back' => '欢迎回来',
-        'happening_today' => '这是今天的情况',
-        'management' => '管理',
-        'products' => '产品',
-        'categories' => '类别',
-        'counter' => '柜台',
-        'administration' => '行政',
-        'students' => '学生',
-        'admins' => '管理员',
-        'orders' => '订单',
-        'packages' => '包裹',
-        'monthly_report' => '月度报告',
-        'product_management' => '产品管理',
-        'manage_inventory' => '管理库存和产品详情',
-        'view_products' => '查看产品',
-        'student_administration' => '学生管理',
-        'manage_student_accounts' => '管理学生账户',
-        'view_students' => '查看学生',
-        'order_processing' => '订单处理',
-        'process_track_orders' => '处理和跟踪订单',
-        'view_orders' => '查看订单',
-        'counter_system' => '柜台系统',
-        'process_student_purchases' => '处理学生购买',
-        'go_to_counter' => '前往柜台',
-        'admin_management' => '管理员管理',
-        'manage_admin_accounts' => '管理管理员账户',
-        'view_admins' => '查看管理员',
-        'packages_management' => '包裹',
-        'manage_product_packages' => '管理产品包裹',
-        'view_packages' => '查看包裹',
-        'account_settings' => '账户设置',
-        'school_settings' => '学校设置',
-        'logout' => '登出',
-        'session_expires' => '会话将在30分钟后过期',
-        'last_login' => '最后登录',
-        'low_stock' => '低库存',
-        'to_process' => '待处理',
-        'main_navigation' => '主导航',
-        'copyright' => '版权',
-    ]
-];
-
-// Function to translate text
-function t($key) {
-    global $translations, $current_language;
-    return $translations[$current_language][$key] ?? $key;
+session_start();
+if (!isset($_SESSION['user_id'])) {
+    header("Location: login.php");
+    exit;
 }
 ?>
 
 <!DOCTYPE html>
-<html lang="<?php echo $current_language; ?>">
+<html lang="en">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title><?php echo t('dashboard'); ?> | School Project</title>
-
-    <!-- Font Awesome -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
-
-    <!-- Google Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Dashboard</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
+        /* CSS Variables for Theme */
         :root {
-            /* Primary Color Palette - Green */
-            --primary-50: #f0fdf4;
-            --primary-100: #dcfce7;
-            --primary-200: #bbf7d0;
-            --primary-300: #86efac;
-            --primary-400: #4ade80;
-            --primary-500: #22c55e;
-            --primary-600: #16a34a;
-            --primary-700: #15803d;
-            --primary-800: #166534;
-            --primary-900: #14532d;
-
-            /* Secondary Color Palette - Yellow */
-            --secondary-50: #fefce8;
-            --secondary-100: #fef9c3;
-            --secondary-200: #fef08a;
-            --secondary-300: #fde047;
-            --secondary-400: #facc15;
-            --secondary-500: #eab308;
-            --secondary-600: #ca8a04;
-            --secondary-700: #a16207;
-            --secondary-800: #854d0e;
-            --secondary-900: #713f12;
-
-            /* Neutral Colors */
-            --white: #ffffff;
-            --gray-50: #f9fafb;
-            --gray-100: #f3f4f6;
-            --gray-200: #e5e7eb;
-            --gray-300: #d1d5db;
-            --gray-400: #9ca3af;
-            --gray-500: #6b7280;
-            --gray-600: #4b5563;
-            --gray-700: #374151;
-            --gray-800: #1f2937;
-            --gray-900: #111827;
-            --black: #000000;
-
-            /* Semantic Colors */
-            --success: var(--primary-500);
-            --warning: var(--secondary-500);
-            --danger: #ef4444;
-            --info: #3b82f6;
-
+            /* Color Palette */
+            --primary-50: #f8f5e8;
+            --primary-100: #f5f0d9;
+            --primary-200: #f5e6b3;
+            --primary-300: #f5d97d;
+            --primary-400: #f5cc47;
+            --primary-500: #f5bf11;
+            --primary-600: #d9a90f;
+            --primary-700: #a3810b;
+            --primary-800: #6d5808;
+            --primary-900: #372c04;
+            
+            --secondary-50: #f5f9f0;
+            --secondary-100: #e8f5e9;
+            --secondary-200: #c8e6c9;
+            --secondary-300: #a5d6a7;
+            --secondary-400: #81c784;
+            --secondary-500: #4caf50;
+            --secondary-600: #43a047;
+            --secondary-700: #388e3c;
+            --secondary-800: #2e7d32;
+            --secondary-900: #1b5e20;
+            
+            --neutral-50: #fafafa;
+            --neutral-100: #f5f5f5;
+            --neutral-200: #eeeeee;
+            --neutral-300: #e0e0e0;
+            --neutral-400: #bdbdbd;
+            --neutral-500: #9e9e9e;
+            --neutral-600: #757575;
+            --neutral-700: #616161;
+            --neutral-800: #424242;
+            --neutral-900: #212121;
+            
+            --error-50: #ffebee;
+            --error-100: #ffcdd2;
+            --error-200: #ef9a9a;
+            --error-300: #e57373;
+            --error-400: #ef5350;
+            --error-500: #f44336;
+            --error-600: #e53935;
+            --error-700: #d32f2f;
+            --error-800: #c62828;
+            --error-900: #b71c1c;
+            
+            --warning-50: #fff8e1;
+            --warning-100: #ffecb3;
+            --warning-200: #ffe082;
+            --warning-300: #ffd54f;
+            --warning-400: #ffca28;
+            --warning-500: #ffc107;
+            --warning-600: #ffb300;
+            --warning-700: #ffa000;
+            --warning-800: #ff8f00;
+            --warning-900: #ff6f00;
+            
+            --success-50: #e8f5e9;
+            --success-100: #c8e6c9;
+            --success-200: #a5d6a7;
+            --success-300: #81c784;
+            --success-400: #66bb6a;
+            --success-500: #4caf50;
+            --success-600: #43a047;
+            --success-700: #388e3c;
+            --success-800: #2e7d32;
+            --success-900: #1b5e20;
+            
+            /* Spacing */
+            --space-xxs: 0.25rem; /* 4px */
+            --space-xs: 0.5rem;  /* 8px */
+            --space-sm: 0.75rem; /* 12px */
+            --space-md: 1rem;    /* 16px */
+            --space-lg: 1.5rem;   /* 24px */
+            --space-xl: 2rem;    /* 32px */
+            --space-xxl: 3rem;   /* 48px */
+            
+            /* Typography */
+            --text-xs: 0.75rem;   /* 12px */
+            --text-sm: 0.875rem;  /* 14px */
+            --text-base: 1rem;    /* 16px */
+            --text-md: 1.125rem;  /* 18px */
+            --text-lg: 1.25rem;   /* 20px */
+            --text-xl: 1.5rem;    /* 24px */
+            --text-xxl: 2rem;     /* 32px */
+            --text-xxxl: 2.5rem;   /* 40px */
+            
+            /* Border Radius */
+            --radius-sm: 0.25rem;  /* 4px */
+            --radius-md: 0.5rem;  /* 8px */
+            --radius-lg: 0.75rem; /* 12px */
+            --radius-xl: 1rem;     /* 16px */
+            --radius-full: 9999px;
+            
             /* Shadows */
+            --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
             --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
             --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
             --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
-
-            /* Border Radius */
-            --radius-sm: 0.25rem;
-            --radius-md: 0.375rem;
-            --radius-lg: 0.5rem;
-            --radius-xl: 0.75rem;
-            --radius-full: 9999px;
-
-            /* Spacing */
-            --space-xs: 0.25rem;
-            --space-sm: 0.5rem;
-            --space-md: 1rem;
-            --space-lg: 1.5rem;
-            --space-xl: 2rem;
-            --space-2xl: 2.5rem;
-            --space-3xl: 3rem;
-
+            --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+            --shadow-inset: inset 0 2px 4px 0 rgba(0, 0, 0, 0.05);
+            
             /* Transitions */
-            --transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
-            --transition-slow: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-
-            /* Layout */
-            --sidebar-width: 16rem;
-            --header-height: 5rem;
+            --transition-fast: 150ms ease-in-out;
+            --transition-normal: 300ms ease-in-out;
+            --transition-slow: 500ms ease-in-out;
+            
+            /* Z-index */
+            --z-index-dropdown: 100;
+            --z-index-sticky: 200;
+            --z-index-fixed: 300;
+            --z-index-modal: 400;
+            --z-index-toast: 500;
         }
-
-        * {
+        
+        /* Base Styles */
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
             margin: 0;
             padding: 0;
-            box-sizing: border-box;
         }
-
+        
+        html {
+            scroll-behavior: smooth;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background-color: var(--gray-50);
-            color: var(--gray-800);
             line-height: 1.5;
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
+            color: var(--neutral-800);
+            background-color: var(--primary-50);
         }
-
-        /* Typography */
-        h1, h2, h3 {
-            font-weight: 600;
-            line-height: 1.25;
-            color: var(--gray-900);
+        
+        img {
+            max-width: 100%;
+            display: block;
         }
-
-        h1 {
-            font-size: 2rem;
-            margin-bottom: var(--space-md);
-        }
-
-        h2 {
-            font-size: 1.5rem;
-            margin-bottom: var(--space-sm);
-        }
-
-        h3 {
-            font-size: 1.25rem;
-            margin-bottom: var(--space-sm);
-        }
-
-        p {
-            margin-bottom: var(--space-sm);
-        }
-
+        
         a {
-            color: var(--primary-600);
             text-decoration: none;
-            transition: var(--transition);
+            color: inherit;
         }
-
-        a:hover {
-            color: var(--primary-700);
+        
+        button {
+            cursor: pointer;
+            font-family: inherit;
+            border: none;
+            background: none;
         }
-
-        /* Layout Components */
+        
+        ul, ol {
+            list-style: none;
+        }
+        
+        /* Typography */
+        h1, h2, h3, h4, h5, h6 {
+            font-weight: 600;
+            line-height: 1.2;
+            color: var(--neutral-900);
+        }
+        
+        h1 { font-size: var(--text-xxxl); }
+        h2 { font-size: var(--text-xxl); }
+        h3 { font-size: var(--text-xl); }
+        h4 { font-size: var(--text-lg); }
+        h5 { font-size: var(--text-md); }
+        h6 { font-size: var(--text-base); }
+        
+        .text-xs { font-size: var(--text-xs); }
+        .text-sm { font-size: var(--text-sm); }
+        .text-base { font-size: var(--text-base); }
+        .text-md { font-size: var(--text-md); }
+        .text-lg { font-size: var(--text-lg); }
+        .text-xl { font-size: var(--text-xl); }
+        .text-xxl { font-size: var(--text-xxl); }
+        
+        .font-light { font-weight: 300; }
+        .font-normal { font-weight: 400; }
+        .font-medium { font-weight: 500; }
+        .font-semibold { font-weight: 600; }
+        .font-bold { font-weight: 700; }
+        
+        /* Layout */
         .container {
             width: 100%;
             max-width: 1200px;
             margin: 0 auto;
             padding: 0 var(--space-md);
         }
-
-        /* Header */
-        .header {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: var(--header-height);
-            background-color: var(--white);
-            box-shadow: var(--shadow-sm);
+        
+        .flex {
             display: flex;
-            align-items: center;
-            padding: 0 var(--space-lg);
-            z-index: 100;
-            border-bottom: 1px solid var(--gray-200);
         }
-
-        .header-content {
-            display: flex;
+        
+        .flex-col {
+            flex-direction: column;
+        }
+        
+        .items-center {
             align-items: center;
+        }
+        
+        .items-start {
+            align-items: flex-start;
+        }
+        
+        .items-end {
+            align-items: flex-end;
+        }
+        
+        .justify-center {
+            justify-content: center;
+        }
+        
+        .justify-between {
             justify-content: space-between;
-            width: 100%;
         }
-
-        .logo {
-            display: flex;
-            align-items: center;
-            gap: var(--space-sm);
+        
+        .justify-start {
+            justify-content: flex-start;
         }
-
-        .logo-text {
-            font-size: 1.5rem;
-            font-weight: 600;
-            color: var(--primary-700);
+        
+        .justify-end {
+            justify-content: flex-end;
         }
-
-        .header-actions {
-            display: flex;
-            align-items: center;
-            gap: var(--space-md);
+        
+        .gap-xxs { gap: var(--space-xxs); }
+        .gap-xs { gap: var(--space-xs); }
+        .gap-sm { gap: var(--space-sm); }
+        .gap-md { gap: var(--space-md); }
+        .gap-lg { gap: var(--space-lg); }
+        .gap-xl { gap: var(--space-xl); }
+        .gap-xxl { gap: var(--space-xxl); }
+        
+        .grid {
+            display: grid;
         }
-
-        /* Language Selector */
-        .language-selector {
-            position: relative;
-            margin-right: var(--space-sm);
+        
+        .grid-cols-2 {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
         }
-
-        .language-button {
-            display: flex;
-            align-items: center;
-            gap: var(--space-xs);
-            padding: var(--space-sm);
-            border-radius: var(--radius-md);
-            cursor: pointer;
-            transition: var(--transition);
-            background-color: var(--gray-100);
-            border: 1px solid var(--gray-200);
-            font-size: 0.875rem;
-            font-weight: 500;
+        
+        .grid-cols-3 {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
         }
-
-        .language-button:hover {
-            background-color: var(--gray-200);
+        
+        .grid-cols-4 {
+            grid-template-columns: repeat(4, minmax(0, 1fr));
         }
-
-        .language-button i {
-            font-size: 1rem;
+        
+        .grid-cols-5 {
+            grid-template-columns: repeat(5, minmax(0, 1fr));
         }
-
-        .language-menu {
+        
+        /* Spacing */
+        .p-xxs { padding: var(--space-xxs); }
+        .p-xs { padding: var(--space-xs); }
+        .p-sm { padding: var(--space-sm); }
+        .p-md { padding: var(--space-md); }
+        .p-lg { padding: var(--space-lg); }
+        .p-xl { padding: var(--space-xl); }
+        .p-xxl { padding: var(--space-xxl); }
+        
+        .px-xxs { padding-left: var(--space-xxs); padding-right: var(--space-xxs); }
+        .px-xs { padding-left: var(--space-xs); padding-right: var(--space-xs); }
+        .px-sm { padding-left: var(--space-sm); padding-right: var(--space-sm); }
+        .px-md { padding-left: var(--space-md); padding-right: var(--space-md); }
+        .px-lg { padding-left: var(--space-lg); padding-right: var(--space-lg); }
+        .px-xl { padding-left: var(--space-xl); padding-right: var(--space-xl); }
+        .px-xxl { padding-left: var(--space-xxl); padding-right: var(--space-xxl); }
+        
+        .py-xxs { padding-top: var(--space-xxs); padding-bottom: var(--space-xxs); }
+        .py-xs { padding-top: var(--space-xs); padding-bottom: var(--space-xs); }
+        .py-sm { padding-top: var(--space-sm); padding-bottom: var(--space-sm); }
+        .py-md { padding-top: var(--space-md); padding-bottom: var(--space-md); }
+        .py-lg { padding-top: var(--space-lg); padding-bottom: var(--space-lg); }
+        .py-xl { padding-top: var(--space-xl); padding-bottom: var(--space-xl); }
+        .py-xxl { padding-top: var(--space-xxl); padding-bottom: var(--space-xxl); }
+        
+        .m-xxs { margin: var(--space-xxs); }
+        .m-xs { margin: var(--space-xs); }
+        .m-sm { margin: var(--space-sm); }
+        .m-md { margin: var(--space-md); }
+        .m-lg { margin: var(--space-lg); }
+        .m-xl { margin: var(--space-xl); }
+        .m-xxl { margin: var(--space-xxl); }
+        
+        .mx-auto { margin-left: auto; margin-right: auto; }
+        
+        /* Width & Height */
+        .w-full { width: 100%; }
+        .h-full { height: 100%; }
+        
+        /* Background Colors */
+        .bg-primary-50 { background-color: var(--primary-50); }
+        .bg-primary-100 { background-color: var(--primary-100); }
+        .bg-primary-200 { background-color: var(--primary-200); }
+        .bg-primary-300 { background-color: var(--primary-300); }
+        .bg-primary-400 { background-color: var(--primary-400); }
+        .bg-primary-500 { background-color: var(--primary-500); }
+        
+        .bg-secondary-50 { background-color: var(--secondary-50); }
+        .bg-secondary-100 { background-color: var(--secondary-100); }
+        .bg-secondary-200 { background-color: var(--secondary-200); }
+        .bg-secondary-300 { background-color: var(--secondary-300); }
+        .bg-secondary-400 { background-color: var(--secondary-400); }
+        .bg-secondary-500 { background-color: var(--secondary-500); }
+        
+        .bg-neutral-50 { background-color: var(--neutral-50); }
+        .bg-neutral-100 { background-color: var(--neutral-100); }
+        .bg-neutral-200 { background-color: var(--neutral-200); }
+        .bg-neutral-300 { background-color: var(--neutral-300); }
+        .bg-neutral-400 { background-color: var(--neutral-400); }
+        .bg-neutral-500 { background-color: var(--neutral-500); }
+        
+        .bg-white { background-color: white; }
+        
+        /* Text Colors */
+        .text-primary-500 { color: var(--primary-500); }
+        .text-primary-600 { color: var(--primary-600); }
+        .text-primary-700 { color: var(--primary-700); }
+        
+        .text-secondary-500 { color: var(--secondary-500); }
+        .text-secondary-600 { color: var(--secondary-600); }
+        .text-secondary-700 { color: var(--secondary-700); }
+        
+        .text-neutral-500 { color: var(--neutral-500); }
+        .text-neutral-600 { color: var(--neutral-600); }
+        .text-neutral-700 { color: var(--neutral-700); }
+        .text-neutral-800 { color: var(--neutral-800); }
+        .text-neutral-900 { color: var(--neutral-900); }
+        
+        .text-white { color: white; }
+        
+        /* Borders */
+        .border {
+            border: 1px solid var(--neutral-200);
+        }
+        
+        .border-t {
+            border-top: 1px solid var(--neutral-200);
+        }
+        
+        .border-b {
+            border-bottom: 1px solid var(--neutral-200);
+        }
+        
+        .border-l {
+            border-left: 1px solid var(--neutral-200);
+        }
+        
+        .border-r {
+            border-right: 1px solid var(--neutral-200);
+        }
+        
+        .border-primary-200 {
+            border-color: var(--primary-200);
+        }
+        
+        .border-secondary-200 {
+            border-color: var(--secondary-200);
+        }
+        
+        /* Border Radius */
+        .rounded-sm { border-radius: var(--radius-sm); }
+        .rounded-md { border-radius: var(--radius-md); }
+        .rounded-lg { border-radius: var(--radius-lg); }
+        .rounded-xl { border-radius: var(--radius-xl); }
+        .rounded-full { border-radius: var(--radius-full); }
+        
+        /* Shadows */
+        .shadow-xs { box-shadow: var(--shadow-xs); }
+        .shadow-sm { box-shadow: var(--shadow-sm); }
+        .shadow-md { box-shadow: var(--shadow-md); }
+        .shadow-lg { box-shadow: var(--shadow-lg); }
+        .shadow-xl { box-shadow: var(--shadow-xl); }
+        .shadow-none { box-shadow: none; }
+        
+        /* Utility Classes */
+        .sr-only {
             position: absolute;
-            top: 100%;
-            right: 0;
-            background: var(--white);
-            border-radius: var(--radius-md);
-            box-shadow: var(--shadow-lg);
-            width: 10rem;
-            padding: var(--space-sm) 0;
-            opacity: 0;
-            visibility: hidden;
-            transform: translateY(0.5rem);
-            transition: var(--transition-slow);
-            z-index: 110;
-            border: 1px solid var(--gray-200);
-        }
-
-        .language-menu.active {
-            opacity: 1;
-            visibility: visible;
-            transform: translateY(0);
-        }
-
-        .language-item {
-            padding: var(--space-sm) var(--space-md);
-            display: flex;
-            align-items: center;
-            gap: var(--space-sm);
-            color: var(--gray-700);
-            font-size: 0.9375rem;
-            transition: var(--transition);
-            cursor: pointer;
-        }
-
-        .language-item:hover {
-            background: var(--gray-100);
-            color: var(--primary-700);
-        }
-
-        .language-item.active {
-            background: var(--primary-50);
-            color: var(--primary-700);
-            font-weight: 500;
-        }
-
-        .language-item.active i {
-            color: var(--primary-500);
-        }
-
-        /* User Dropdown */
-        .user-dropdown {
-            position: relative;
-        }
-
-        .user-button {
-            display: flex;
-            align-items: center;
-            gap: var(--space-sm);
-            padding: var(--space-sm);
-            border-radius: var(--radius-full);
-            cursor: pointer;
-            transition: var(--transition);
-            white-space: nowrap;
-        }
-
-        .user-button:hover {
-            background-color: var(--gray-100);
-        }
-
-        .user-avatar {
-            width: 2.75rem;
-            height: 2.75rem;
-            border-radius: var(--radius-full);
-            background-color: var(--primary-100);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: var(--primary-700);
-            font-weight: 600;
-            font-size: 1rem;
-            flex-shrink: 0;
-        }
-
-        .user-avatar.online::after {
-            content: '';
-            position: absolute;
-            bottom: 0;
-            right: 0;
-            width: 0.75rem;
-            height: 0.75rem;
-            border-radius: var(--radius-full);
-            background-color: var(--success);
-            border: 2px solid var(--white);
-        }
-
-        .user-details {
-            display: flex;
-            flex-direction: column;
-            margin-right: var(--space-sm);
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .user-name {
-            font-weight: 500;
-            font-size: 1rem;
-            color: var(--gray-800);
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            max-width: 120px;
-        }
-
-        .user-role {
-            font-size: 0.875rem;
-            color: var(--gray-500);
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            max-width: 120px;
-        }
-
-        .dropdown-menu {
-            position: absolute;
-            top: 100%;
-            right: 0;
-            background: var(--white);
-            border-radius: var(--radius-md);
-            box-shadow: var(--shadow-xl);
-            width: 18rem;
-            padding: var(--space-sm) 0;
-            opacity: 0;
-            visibility: hidden;
-            transform: translateY(0.5rem);
-            transition: var(--transition-slow);
-            z-index: 110;
-            border: 1px solid var(--gray-200);
-        }
-
-        .dropdown-menu.active {
-            opacity: 1;
-            visibility: visible;
-            transform: translateY(0);
-        }
-
-        .dropdown-header {
-            padding: var(--space-md);
-            display: flex;
-            align-items: center;
-            gap: var(--space-md);
-            border-bottom: 1px solid var(--gray-200);
-        }
-
-        .dropdown-avatar {
-            width: 3rem;
-            height: 3rem;
-            border-radius: var(--radius-full);
-            background-color: var(--primary-100);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: var(--primary-700);
-            font-weight: 600;
-            font-size: 1.125rem;
-        }
-
-        .dropdown-user-info {
-            flex: 1;
-            min-width: 0;
-        }
-
-        .dropdown-name {
-            font-weight: 600;
-            font-size: 1.0625rem;
-            color: var(--gray-900);
-            margin-bottom: 0.125rem;
-        }
-
-        .dropdown-email {
-            font-size: 0.875rem;
-            color: var(--gray-500);
-            margin-bottom: 0.25rem;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .dropdown-meta {
-            font-size: 0.8125rem;
-            color: var(--gray-500);
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            flex-wrap: wrap;
-        }
-
-        .dropdown-meta i {
-            color: var(--primary-500);
-            font-size: 0.8125rem;
-        }
-
-        .dropdown-divider {
+            width: 1px;
             height: 1px;
-            background: var(--gray-200);
-            margin: var(--space-sm) 0;
-            border: none;
-        }
-
-        .dropdown-item {
-            padding: var(--space-sm) var(--space-md);
-            border-radius: var(--radius-sm);
-            margin: 0 var(--space-xs);
-            display: flex;
-            align-items: center;
-            gap: var(--space-sm);
-            color: var(--gray-700);
-            font-size: 0.9375rem;
-            transition: var(--transition);
-        }
-
-        .dropdown-item:hover {
-            background: var(--gray-100);
-            color: var(--primary-700);
-        }
-
-        .dropdown-item i {
-            color: var(--gray-500);
-            font-size: 1.125rem;
-            width: 1.5rem;
-            text-align: center;
-            transition: var(--transition);
-        }
-
-        .dropdown-item:hover i {
-            color: var(--primary-500);
-        }
-
-        .dropdown-footer {
-            padding: var(--space-sm) var(--space-md);
-            font-size: 0.8125rem;
-            color: var(--gray-500);
-            background: var(--gray-50);
-            border-radius: 0 0 var(--radius-md) var(--radius-md);
-            text-align: center;
-            margin-top: var(--space-xs);
-            border-top: 1px solid var(--gray-200);
-        }
-
-        /* Layout Components */
-        .main-layout {
-            display: flex;
-            min-height: calc(100vh - var(--header-height));
-            margin-top: var(--header-height);
-        }
-
-        /* Sidebar */
-        .sidebar {
-            width: var(--sidebar-width);
-            background-color: var(--white);
-            border-right: 1px solid var(--gray-200);
-            padding: var(--space-lg) 0;
-            display: flex;
-            flex-direction: column;
-            transition: var(--transition-slow);
-            z-index: 90;
-            overflow-y: auto;
-            position: fixed;
-            top: var(--header-height);
-            bottom: 0;
-            left: 0;
-        }
-
-        .sidebar-header {
-            padding: 0 var(--space-lg) var(--space-lg);
-            border-bottom: 1px solid var(--gray-200);
-        }
-
-        .sidebar-title {
-            font-size: 0.8125rem;
-            font-weight: 600;
-            color: var(--gray-500);
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            margin-bottom: var(--space-sm);
-        }
-
-        .nav-menu {
-            flex: 1;
-            padding: var(--space-lg) 0;
-            overflow-y: auto;
-        }
-
-        .nav-group {
-            margin-bottom: var(--space-lg);
-        }
-
-        .nav-group-title {
-            padding: 0 var(--space-lg) var(--space-sm);
-            font-size: 0.8125rem;
-            font-weight: 600;
-            color: var(--gray-500);
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-
-        .nav-item {
-            display: flex;
-            align-items: center;
-            padding: var(--space-sm) var(--space-lg);
-            color: var(--gray-600);
-            font-size: 0.9375rem;
-            font-weight: 500;
-            text-decoration: none;
-            transition: var(--transition);
-            position: relative;
-        }
-
-        .nav-item:hover {
-            color: var(--primary-600);
-            background-color: var(--primary-50);
-        }
-
-        .nav-item.active {
-            color: var(--primary-700);
-            background-color: var(--primary-50);
-        }
-
-        .nav-item.active::before {
-            content: '';
-            position: absolute;
-            left: 0;
-            top: 0;
-            bottom: 0;
-            width: 3px;
-            background-color: var(--primary-500);
-            border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-        }
-
-        .nav-item i {
-            width: 1.75rem;
-            font-size: 1.25rem;
-            margin-right: var(--space-sm);
-            color: var(--gray-500);
-            transition: var(--transition);
-        }
-
-        .nav-item:hover i,
-        .nav-item.active i {
-            color: var(--primary-500);
-        }
-
-        .nav-badge {
-            margin-left: auto;
-            padding: var(--space-xs) var(--space-sm);
-            border-radius: var(--radius-full);
-            background-color: var(--primary-100);
-            color: var(--primary-700);
-            font-size: 0.8125rem;
-            font-weight: 600;
-        }
-
-        /* Main Content */
-        .main-content {
-            flex: 1;
-            padding: var(--space-xl);
-            margin-left: var(--sidebar-width);
-            background-color: var(--gray-50);
-            min-height: calc(100vh - var(--header-height));
-        }
-
-        .page-header {
-            margin-bottom: var(--space-xl);
-        }
-
-        .page-title {
-            font-size: 1.75rem;
-            font-weight: 700;
-            color: var(--gray-900);
-            margin-bottom: var(--space-xs);
-        }
-
-        .page-subtitle {
-            font-size: 1rem;
-            color: var(--gray-600);
-        }
-
-        .page-actions {
-            display: flex;
-            align-items: center;
-            gap: var(--space-sm);
-            margin-top: var(--space-md);
-        }
-
-        /* Dashboard Grid */
-        .dashboard-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
-            gap: var(--space-lg);
-            margin-bottom: var(--space-xl);
-        }
-
-        /* Dashboard Cards */
-        .dashboard-card {
-            background: var(--white);
-            border-radius: var(--radius-lg);
+            padding: 0;
+            margin: -1px;
             overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border-width: 0;
+        }
+        
+        .sticky {
+            position: sticky;
+        }
+        
+        .top-0 {
+            top: 0;
+        }
+        
+        .z-100 {
+            z-index: 100;
+        }
+        
+        .z-200 {
+            z-index: 200;
+        }
+        
+        .z-300 {
+            z-index: 300;
+        }
+        
+        .z-400 {
+            z-index: 400;
+        }
+        
+        .z-500 {
+            z-index: 500;
+        }
+        
+        /* Header Styles */
+        .header {
+            position: sticky;
+            top: 0;
+            z-index: var(--z-index-sticky);
+            background-color: white;
             box-shadow: var(--shadow-sm);
-            transition: var(--transition);
-            border: 1px solid var(--gray-200);
-            position: relative;
-            display: block;
-            color: inherit;
+            padding: var(--space-md) 0;
         }
-
-        .dashboard-card:hover {
-            transform: translateY(-0.25rem);
-            box-shadow: var(--shadow-md);
-            border-color: var(--primary-300);
-            text-decoration: none;
-        }
-
-        .card-header {
-            padding: var(--space-lg);
-            position: relative;
-        }
-
-        .card-icon {
-            width: 3.5rem;
-            height: 3.5rem;
-            border-radius: var(--radius-md);
-            background-color: var(--secondary-100);
+        
+        .header__logo {
             display: flex;
             align-items: center;
-            justify-content: center;
-            margin-bottom: var(--space-md);
+            gap: var(--space-sm);
+            font-size: var(--text-lg);
+            font-weight: 600;
             color: var(--secondary-600);
-            font-size: 1.75rem;
         }
-
-        .card-badge {
-            position: absolute;
-            top: var(--space-md);
-            right: var(--space-md);
-            padding: var(--space-xs) var(--space-sm);
-            border-radius: var(--radius-full);
-            font-size: 0.8125rem;
-            font-weight: 600;
-            color: var(--white);
+        
+        .header__logo-icon {
+            color: var(--secondary-600);
+            font-size: var(--text-xl);
         }
-
-        .card-badge.warning {
-            background-color: var(--warning);
-        }
-
-        .card-badge.danger {
-            background-color: var(--danger);
-        }
-
-        .card-title {
-            font-weight: 600;
-            font-size: 1.25rem;
-            color: var(--gray-900);
-            margin-bottom: var(--space-xs);
-        }
-
-        .card-subtitle {
-            font-size: 0.9375rem;
-            color: var(--gray-500);
-            margin-bottom: var(--space-sm);
-        }
-
-        .card-body {
-            padding: 0 var(--space-lg) var(--space-lg);
-        }
-
-        .card-link {
-            display: inline-flex;
-            align-items: center;
-            gap: var(--space-xs);
-            font-size: 0.9375rem;
+        
+        .header__welcome {
             font-weight: 500;
-            color: var(--primary-600);
-            text-decoration: none;
-            transition: var(--transition);
-            padding: var(--space-xs) 0;
+            color: var(--secondary-600);
+            white-space: nowrap;
         }
-
-        .card-link:hover {
-            color: var(--primary-700);
-        }
-
-        .card-link i {
-            font-size: 0.875rem;
-            transition: var(--transition);
-        }
-
-        .card-link:hover i {
-            transform: translateX(0.25rem);
-        }
-
-        /* Stats Grid */
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
-            gap: var(--space-lg);
-            margin-bottom: var(--space-xl);
-        }
-
-        .stat-card {
-            background: var(--white);
-            border-radius: var(--radius-lg);
-            padding: var(--space-lg);
-            box-shadow: var(--shadow-sm);
-            border: 1px solid var(--gray-200);
-        }
-
-        .stat-title {
-            font-size: 0.9375rem;
-            color: var(--gray-500);
-            margin-bottom: var(--space-sm);
-        }
-
-        .stat-value {
-            font-size: 1.75rem;
-            font-weight: 700;
-            color: var(--gray-900);
-            margin-bottom: var(--space-xs);
-        }
-
-        .stat-change {
-            display: flex;
-            align-items: center;
-            gap: var(--space-xs);
-            font-size: 0.875rem;
-            font-weight: 500;
-        }
-
-        .stat-change.positive {
-            color: var(--success);
-        }
-
-        .stat-change.negative {
-           颜色: var(--danger);
-        }
-
-        /* Date Display */
-        .date-display {
-            display: flex;
-            align-items: center;
-            gap: var(--space-xs);
-            font-size: 0.9375rem;
-            color: var(--gray-500);
-            padding: var(--space-sm) var(--space-md);
-            background-color: var(--gray-100);
-            border-radius: var(--radius-md);
-        }
-
-        .date-display i {
-            color: var(--gray-400);
-        }
-
-        /* Buttons */
+        
+        /* Button Styles */
         .btn {
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            padding: 0.75rem 1.5rem;
+            gap: var(--space-sm);
+            padding: var(--space-sm) var(--space-md);
             border-radius: var(--radius-md);
-            font-size: 0.9375rem;
             font-weight: 500;
-            line-height: 1.25;
-            transition: var(--transition);
-            cursor: pointer;
-            border: 1px solid transparent;
-            text-decoration: none;
+            transition: var(--transition-fast);
             white-space: nowrap;
         }
-
-        .btn-primary {
-            background-color: var(--primary-600);
-            color: var(--white);
+        
+        .btn--primary {
+            background-color: var(--secondary-500);
+            color: white;
         }
-
-        .btn-primary:hover {
-            background-color: var(--primary-700);
+        
+        .btn--primary:hover {
+            background-color: var(--secondary-600);
+            box-shadow: var(--shadow-sm);
         }
-
-        .btn-outline {
+        
+        .btn--secondary {
+            background-color: var(--primary-200);
+            color: var(--neutral-800);
+        }
+        
+        .btn--secondary:hover {
+            background-color: var(--primary-300);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        .btn--outline {
             background-color: transparent;
-            color: var(--primary-600);
-            border-color: var(--primary-300);
+            color: var(--secondary-600);
+            border: 1px solid var(--secondary-300);
         }
-
-        .btn-outline:hover {
-            background-color: var(--primary-50);
-            color: var(--primary-700);
+        
+        .btn--outline:hover {
+            background-color: var(--secondary-50);
         }
-
-        /* Footer */
-        .footer {
-            padding: var(--space-lg);
-            background-color: var(--white);
-            color: var(--gray-500);
-            font-size: 0.9375rem;
-            border-top: 1px solid var(--gray-200);
-            margin-left: var(--sidebar-width);
+        
+        /* Dashboard Layout */
+        .dashboard {
+            display: grid;
+            grid-template-columns: minmax(250px, 300px) 1fr;
+            gap: var(--space-lg);
+            padding: var(--space-lg) 0;
         }
-
-        .footer-content {
+        
+        /* Sidebar Styles */
+        .sidebar {
+            position: sticky;
+            top: calc(60px + var(--space-lg));
+            align-self: start;
+            height: calc(100vh - 120px);
+            overflow-y: auto;
+            background-color: white;
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        .sidebar__user {
             display: flex;
-            flex-wrap: wrap;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            padding: var(--space-lg);
+            border-bottom: 1px solid var(--neutral-200);
+        }
+        
+        .sidebar__avatar {
+            width: 80px;
+            height: 80px;
+            border-radius: var(--radius-full);
+            background-color: var(--primary-200);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: var(--space-sm);
+            color: var(--secondary-600);
+            font-weight: 600;
+            font-size: var(--text-xl);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        .sidebar__name {
+            font-size: var(--text-md);
+            font-weight: 600;
+            color: var(--secondary-600);
+            margin-bottom: var(--space-xs);
+        }
+        
+        .sidebar__role {
+            font-size: var(--text-sm);
+            color: var(--secondary-600);
+            background-color: var(--secondary-100);
+            padding: var(--space-xxs) var(--space-sm);
+            border-radius: var(--radius-full);
+        }
+        
+        .sidebar__title {
+            font-size: var(--text-sm);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--neutral-500);
+            margin: var(--space-md) 0 var(--space-sm) var(--space-sm);
+        }
+        
+        .sidebar__menu {
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-xxs);
+            padding: 0 var(--space-sm);
+        }
+        
+        .sidebar__link {
+            display: flex;
+            align-items: center;
+            gap: var(--space-sm);
+            padding: var(--space-sm) var(--space-md);
+            border-radius: var(--radius-md);
+            transition: var(--transition-fast);
+            font-weight: 500;
+        }
+        
+        .sidebar__link:hover {
+            background-color: var(--primary-100);
+            color: var(--secondary-600);
+        }
+        
+        .sidebar__link--active {
+            background-color: var(--secondary-50);
+            color: var(--secondary-600);
+            font-weight: 600;
+        }
+        
+        .sidebar__link--logout {
+            color: var(--error-500);
+        }
+        
+        .sidebar__link--logout:hover {
+            background-color: var(--error-50);
+        }
+        
+        .sidebar__icon {
+            width: 20px;
+            display: flex;
+            justify-content: center;
+            font-size: var(--text-md);
+        }
+        
+        /* Main Content Styles */
+        .main {
+            background-color: white;
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-sm);
+            padding: var(--space-xl);
+        }
+        
+        .main__header {
+            display: flex;
             justify-content: space-between;
             align-items: center;
+            margin-bottom: var(--space-xl);
+            padding-bottom: var(--space-md);
+            border-bottom: 1px solid var(--neutral-200);
+        }
+        
+        /* Card Styles */
+        .card {
+            background-color: white;
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-sm);
+            padding: var(--space-lg);
+            margin-bottom: var(--space-lg);
+            transition: var(--transition-normal);
+        }
+        
+        .card:hover {
+            box-shadow: var(--shadow-md);
+            transform: translateY(-2px);
+        }
+        
+        .card--highlight {
+            background-color: var(--secondary-50);
+            border-left: 4px solid var(--secondary-500);
+        }
+        
+        .card--primary {
+            background-color: var(--primary-100);
+        }
+        
+        .card__header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: var(--space-md);
+        }
+        
+        /* Info Item */
+        .info {
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-xxs);
+        }
+        
+        .info__label {
+            font-size: var(--text-sm);
+            color: var(--neutral-500);
+        }
+        
+        .info__value {
+            font-size: var(--text-md);
+            font-weight: 600;
+        }
+        
+        /* Quick Actions */
+        .quick-actions {
+            display: grid;
             gap: var(--space-md);
-            max-width: 1200px;
-            margin: 0 auto;
+            margin-top: var(--space-xl);
         }
-
-        /* Mobile Menu Toggle */
-        .menu-toggle {
-            display: none;
-            background: none;
-            border: none;
-            color: var(--gray-600);
-            font-size: 1.5rem;
+        
+        .action {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: var(--space-lg);
+            background-color: var(--primary-100);
+            border-radius: var(--radius-lg);
+            transition: var(--transition-normal);
             cursor: pointer;
-            padding: var(--space-sm);
-            margin-right: var(--space-sm);
         }
-
-        /* Overlay for mobile menu */
-        .sidebar-overlay {
+        
+        .action:hover {
+            background-color: var(--primary-200);
+            transform: translateY(-3px);
+            box-shadow: var(--shadow-md);
+        }
+        
+        .action__icon {
+            font-size: var(--text-xxl);
+            margin-bottom: var(--space-sm);
+            color: var(--secondary-600);
+        }
+        
+        /* Badges */
+        .badge {
+            display: inline-block;
+            padding: var(--space-xxs) var(--space-sm);
+            font-size: var(--text-xs);
+            font-weight: 600;
+            border-radius: var(--radius-full);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .badge--success {
+            background-color: var(--secondary-200);
+            color: var(--secondary-800);
+        }
+        
+        .badge--warning {
+            background-color: var(--primary-200);
+            color: var(--neutral-800);
+        }
+        
+        /* Modal Styles */
+        .modal {
             position: fixed;
             top: 0;
             left: 0;
             right: 0;
             bottom: 0;
-            background: rgba(0, 0, 0, 0.5);
-            z-index: 80;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: var(--z-index-modal);
             opacity: 0;
             visibility: hidden;
-            transition: var(--transition-slow);
+            transition: var(--transition-normal);
         }
-
-        .sidebar-overlay.active {
+        
+        .modal--active {
             opacity: 1;
             visibility: visible;
         }
-
-        /* Responsive Styles - Extended */
-        @media (max-width: 1440px) {
-            .main-content {
-                padding: var(--space-xl) var(--space-lg);
+        
+        .modal__content {
+            background-color: white;
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-lg);
+            width: 90%;
+            max-width: 500px;
+            max-height: 90vh;
+            overflow-y: auto;
+            transform: translateY(20px);
+            transition: var(--transition-normal);
+        }
+        
+        .modal--active .modal__content {
+            transform: translateY(0);
+        }
+        
+        .modal__header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: var(--space-md) var(--space-lg);
+            border-bottom: 1px solid var(--neutral-200);
+        }
+        
+        .modal__close {
+            font-size: var(--text-lg);
+            color: var(--neutral-500);
+            cursor: pointer;
+            transition: var(--transition-fast);
+        }
+        
+        .modal__close:hover {
+            color: var(--neutral-700);
+        }
+        
+        .modal__body {
+            padding: var(--space-lg);
+        }
+        
+        .modal__footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: var(--space-sm);
+            padding: var(--space-md) var(--space-lg);
+            border-top: 1px solid var(--neutral-200);
+        }
+        
+        /* Form Elements */
+        .form-group {
+            margin-bottom: var(--space-md);
+        }
+        
+        .form-label {
+            display: block;
+            margin-bottom: var(--space-xs);
+            font-weight: 500;
+        }
+        
+        .form-control {
+            width: 100%;
+            padding: var(--space-sm);
+            border: 1px solid var(--neutral-300);
+            border-radius: var(--radius-sm);
+            transition: var(--transition-fast);
+        }
+        
+        .form-control:focus {
+            outline: none;
+            border-color: var(--secondary-400);
+            box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.1);
+        }
+        
+        /* Responsive Styles */
+        @media (max-width: 1024px) {
+            .dashboard {
+                grid-template-columns: 240px 1fr;
+                gap: var(--space-md);
             }
-            
-            .dashboard-grid {
-                grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+        }
+        
+        @media (max-width: 768px) {
+            .dashboard {
+                grid-template-columns: 1fr;
                 gap: var(--space-md);
             }
             
-            .stats-grid {
-                grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
-            }
-        }
-
-        @media (max-width: 1200px) {
             .sidebar {
-                width: 14rem;
-                padding: var(--space-lg) var(--space-md);
+                position: static;
+                height: auto;
+                margin-bottom: var(--space-md);
             }
             
-            .nav-item {
-                padding: var(--space-sm) var(--space-md);
-            }
-            
-            .dropdown-menu {
-                width: 16rem;
-            }
-            
-            .card-header {
-                padding: var(--space-md);
-            }
-            
-            .card-icon {
-                width: 3rem;
-                height: 3rem;
-                font-size: 1.5rem;
-            }
-        }
-
-        @media (max-width: 1024px) {
-            .sidebar {
-                transform: translateX(-100%);
-                width: 16rem;
-                padding: var(--space-lg);
-            }
-
-            .sidebar.active {
-                transform: translateX(0);
-            }
-
-            .main-content {
-                margin-left: 0;
-                padding: var(--space-lg);
-            }
-
-            .footer {
-                margin-left: 0;
-            }
-
-            .menu-toggle {
-                display: block;
-            }
-            
-            .header {
-                padding: 0 var(--space-md);
-            }
-            
-            .logo-text {
-                font-size: 1.25rem;
-            }
-            
-            .user-name {
-                max-width: 100px;
-            }
-            
-            .user-role {
-                max-width: 100px;
-            }
-            
-            .dashboard-grid {
-                grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
-            }
-            
-            .dropdown-menu {
-                right: 0;
-            }
-        }
-
-        @media (max-width: 768px) {
-            :root {
-                --header-height: 4rem;
-                --sidebar-width: 14rem;
-            }
-            
-            .main-layout {
-                margin-top: 4rem;
-            }
-            
-            .sidebar {
-                top: 4rem;
-            }
-            
-            .page-header {
-                margin-bottom: var(--space-lg);
-            }
-
-            .page-title {
-                font-size: 1.5rem;
-            }
-            
-            .stats-grid {
-                grid-template-columns: 1fr 1fr;
-            }
-            
-            .dropdown-menu {
-                width: 14rem;
-            }
-            
-            .card-title {
-                font-size: 1.125rem;
-            }
-            
-            .card-subtitle {
-                font-size: 0.875rem;
-            }
-            
-            .stat-value {
-                font-size: 1.5rem;
-            }
-        }
-
-        @media (max-width: 640px) {
-            .dashboard-grid {
-                grid-template-columns: 1fr;
-            }
-            
-            .stats-grid {
-                grid-template-columns: 1fr;
-            }
-            
-            .page-actions {
+            .header__container {
                 flex-direction: column;
                 align-items: flex-start;
-            }
-            
-            .date-display {
-                width: 100%;
-                justify-content: center;
-            }
-            
-            .dropdown-menu {
-                width: 12rem;
-            }
-            
-            .dropdown-header {
-                flex-direction: column;
-                text-align: center;
-            }
-            
-            .dropdown-user-info {
-                text-align: center;
-            }
-            
-            .dropdown-meta {
-                justify-content: center;
-            }
-            
-            .user-name {
-                max-width: 80px;
-            }
-            
-            .user-role {
-                max-width: 80px;
+                gap: var(--space-sm);
             }
         }
-
-        @media (max-width: 480px) {
-            :root {
-                --space-xl: 1.5rem;
-                --space-lg: 1rem;
-                --space-md: 0.75rem;
-            }
-            
-            .header {
+        
+        @media (max-width: 576px) {
+            .container {
                 padding: 0 var(--space-sm);
-                height: 3.5rem;
             }
             
-            .main-layout {
-                margin-top: 3.5rem;
-            }
-            
-            .sidebar {
-                top: 3.5rem;
-                width: 12rem;
-                padding: var(--space-md) 0;
-            }
-            
-            .nav-item {
-                padding: var(--space-sm);
-                font-size: 0.875rem;
-            }
-            
-            .nav-item i {
-                width: 1.5rem;
-                font-size: 1rem;
-            }
-            
-            .main-content {
+            .main {
                 padding: var(--space-md);
             }
             
-            .page-title {
-                font-size: 1.25rem;
-            }
-            
-            .page-subtitle {
-                font-size: 0.875rem;
-            }
-            
-            .user-avatar {
-                width: 2.25rem;
-                height: 2.25rem;
-                font-size: 0.875rem;
-            }
-            
-            .dropdown-menu {
-                width: 10rem;
-            }
-            
-            .dropdown-item {
-                padding: var(--space-xs) var(--space-sm);
-            }
-            
-            .card-header {
-                padding: var(--space-md) var(--space-sm);
-            }
-            
-            .card-body {
-                padding: 0 var(--space-sm) var(--space-sm);
-            }
-            
-            .user-name {
-                max-width: 60px;
-            }
-            
-            .user-role {
-                max-width: 60px;
-            }
-        }
-
-        @media (max-width: 360px) {
-            .header {
-                padding: 0 var(--space-xs);
-            }
-            
-            .menu-toggle {
-                margin-right: 0;
-                padding: var(--space-xs);
-            }
-            
-            .logo-text {
-                font-size: 1rem;
-            }
-            
-            .sidebar {
-                width: 10rem;
-            }
-            
-            .nav-group-title {
-                padding: 0 var(--space-sm) var(--space-xs);
-                font-size: 0.75rem;
-            }
-            
-            .dropdown-menu {
-                width: 8rem;
-            }
-            
-            .stat-card {
-                padding: var(--space-md) var(--space-sm);
-            }
-            
-            .stat-title {
-                font-size: 0.875rem;
-            }
-            
-            .stat-value {
-                font-size: 1.25rem;
-            }
-            
-            .user-name {
-                max-width: 40px;
-            }
-            
-            .user-role {
-                max-width: 40px;
-            }
-        }
-
-        /* Print Styles */
-        @media print {
-            .header,
-            .sidebar,
-            .footer,
-            .menu-toggle {
-                display: none !important;
-            }
-            
-            .main-content {
-                margin-left: 0 !important;
-                padding: 0 !important;
-            }
-            
-            body {
-                background: white !important;
-                color: black !important;
-            }
-            
-            a {
-                color: black !important;
-                text-decoration: underline !important;
-            }
-            
-            .dashboard-card {
-                break-inside: avoid;
-                page-break-inside: avoid;
-                margin-bottom: 1rem;
-            }
-            
-            .dashboard-grid {
-                display: block !important;
-            }
-        }
-
-        /* Dark Mode Support */
-        @media (prefers-color-scheme: dark) {
-            :root {
-                --white: #1a1a1a;
-                --gray-50: #2d2d2d;
-                --gray-100: #3d3d3d;
-                --gray-200: #4d4d4d;
-                --gray-300: #5d5d5d;
-                --gray-400: #7a7a7a;
-                --gray-500: #9e9e9e;
-                --gray-600: #c2c2c2;
-                --gray-700: #e0e0e0;
-                --gray-800: #f0f0f0;
-                --gray-900: #ffffff;
-                --black: #ffffff;
-            }
-            
-            .dashboard-card,
-            .stat-card {
-                border-color: var(--gray-300);
-            }
-            
-            .dropdown-menu {
-                border-color: var(--gray-300);
-            }
-        }
-
-        /* High Contrast Mode */
-        @media (prefers-contrast: high) {
-            :root {
-                --primary-500: #0066cc;
-                --primary-600: #004499;
-                --secondary-500: #996600;
-                --danger: #cc0000;
-            }
-            
-            body {
-                -webkit-font-smoothing: none;
-            }
-            
-            .btn {
-                border-width: 2px;
-            }
-            
-            .nav-item.active::before {
-                width: 4px;
-            }
-        }
-
-        /* Motion Reduction */
-        @media (prefers-reduced-motion: reduce) {
-            * {
-                animation-duration: 0.01ms !important;
-                animation-iteration-count: 1 !important;
-                transition-duration: 0.01ms !important;
-                scroll-behavior: auto !important;
+            .grid-cols-2,
+            .grid-cols-3,
+            .grid-cols-4 {
+                grid-template-columns: 1fr;
             }
         }
     </style>
 </head>
 <body>
-    <!-- Header Section -->
+    <!-- Header -->
     <header class="header">
-        <div class="header-content">
-            <button class="menu-toggle" aria-label="Toggle menu">
-                <i class="fas fa-bars"></i>
-            </button>
-
-            <div class="logo">
-                <span class="logo-text">SMJK PHOR TAY</span>
-            </div>
-
-            <div class="header-actions">
-                <!-- Language Selector -->
-                <div class="language-selector">
-                    <button class="language-button" aria-expanded="false" aria-haspopup="true" aria-label="Language selector">
-                        <i class="fas fa-globe"></i>
-                        <span><?php echo $available_languages[$current_language]; ?></span>
-                        <i class="fas fa-chevron-down" style="font-size: 0.75rem;"></i>
-                    </button>
-
-                    <div class="language-menu" aria-hidden="true">
-                        <div class="language-item <?php echo $current_language === 'en' ? 'active' : ''; ?>" data-lang="en">
-                            <span>English</span>
-                        </div>
-                        <div class="language-item <?php echo $current_language === 'ms' ? 'active' : ''; ?>" data-lang="ms">
-                            <span>Malay</span>
-                        </div>
-                        <div class="language-item <?php echo $current_language === 'zh' ? 'active' : ''; ?>" data-lang="zh">
-                            <span>Chinese</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="user-dropdown">
-                    <button class="user-button" aria-expanded="false" aria-haspopup="true" aria-label="User menu">
-                        <div class="user-avatar online">
-                            <span><?= isset($admin_name) && $admin_name ? substr($admin_name, 0, 1) : 'A' ?></span>
-                        </div>
-                        <div class="user-details">
-                            <span class="user-name"><?= htmlspecialchars($admin_name ?? 'Admin') ?></span>
-                            <span class="user-role"><?= htmlspecialchars($admin_role ?? 'User') ?></span>
-                        </div>
-                        <i class="fas fa-chevron-down" style="font-size: 0.875rem;"></i>
-                    </button>
-
-                    <div class="dropdown-menu" aria-hidden="true">
-                        <div class="dropdown-header">
-                            <div class="dropdown-avatar">
-                                <span><?= isset($admin_name) && $admin_name ? substr($admin_name, 0, 1) : 'A' ?></span>
-                            </div>
-                            <div class="dropdown-user-info">
-                                <div class="dropdown-name"><?= htmlspecialchars($admin_name ?? 'Admin') ?></div>
-                                <div class="dropdown-email"><?= htmlspecialchars($admin_email ?? '') ?></div>
-                                <div class="dropdown-meta">
-                                    <i class="fas fa-shield-alt"></i>
-                                    <span><?= htmlspecialchars($admin_role ?? 'User') ?></span>
-                                    <i class="fas fa-circle" style="font-size: 0.25rem;"></i>
-                                    <i class="fas fa-clock"></i>
-                                    <span><?php echo t('last_login'); ?>: <?= htmlspecialchars($last_login) ?></span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="dropdown-divider"></div>
-
-                        <a href="edit_admin.php?id=<?= urlencode($admin_id) ?>" class="dropdown-item">
-                            <i class="fas fa-user-cog"></i>
-                            <span><?php echo t('account_settings'); ?></span>
-                        </a>
-
-                        <?php if ($is_admin == 2): ?>
-                            <a href="system_settings.php" class="dropdown-item">
-                                <i class="fas fa-sliders-h"></i>
-                                <span><?php echo t('school_settings'); ?></span>
-                            </a>
-                        <?php endif; ?>
-
-                        <div class="dropdown-divider"></div>
-
-                        <a href="logout.php" class="dropdown-item">
-                            <i class="fas fa-sign-out-alt"></i>
-                            <span><?php echo t('logout'); ?></span>
-                        </a>
-
-                        <div class="dropdown-footer">
-                            <?php echo t('session_expires'); ?>
-                        </div>
-                    </div>
-                </div>
+        <div class="container flex justify-between items-center">
+            <a href="#" class="header__logo">
+                <span class="header__logo-icon">🌱</span>
+                <span>Student Portal</span>
+            </a>
+            <div class="flex items-center gap-md">
+                <span class="header__welcome">Welcome, <?= htmlspecialchars($_SESSION['name']) ?></span>
+                <a href="logout.php" class="btn btn--secondary">
+                    <i class="fas fa-sign-out-alt"></i>
+                    <span>Logout</span>
+                </a>
             </div>
         </div>
     </header>
-
-    <!-- Mobile Menu Overlay -->
-    <div class="sidebar-overlay"></div>
-
-    <!-- Main Layout -->
-    <div class="main-layout">
-        <!-- Sidebar Navigation -->
-        <aside class="sidebar">
-            <div class="sidebar-header">
-                <div class="sidebar-title"><?php echo t('main_navigation'); ?></div>
-            </div>
-
-            <nav class="nav-menu">
-                <div class="nav-group">
-                    <div class="nav-group-title"><?php echo t('management'); ?></div>
-
-                    <a href="dashboard.php" class="nav-item active">
-                        <i class="fas fa-tachometer-alt"></i>
-                        <span><?php echo t('dashboard'); ?></span>
-                    </a>
-
-                    <a href="view_products.php" class="nav-item">
-                        <i class="fas fa-box-open"></i>
-                        <span><?php echo t('products'); ?></span>
-                        <?php if ($lowStockCount > 0): ?>
-                            <span class="nav-badge"><?= $lowStockCount ?> <?php echo t('low_stock'); ?></span>
-                        <?php endif; ?>
-                    </a>
-
-                    <a href="view_categories.php" class="nav-item">
-                        <i class="fas fa-tags"></i>
-                        <span><?php echo t('categories'); ?></span>
-                    </a>
-
-                    <a href="counter.php" class="nav-item">
-                        <i class="fas fa-cash-register"></i>
-                        <span><?php echo t('counter'); ?></span>
-                    </a>
+    
+    <!-- Dashboard -->
+    <div class="container">
+        <div class="dashboard">
+            <!-- Sidebar -->
+            <aside class="sidebar">
+                <div class="sidebar__user">
+                    <div class="sidebar__avatar">
+                        <?= strtoupper(substr(htmlspecialchars($_SESSION['name']), 0, 1)) ?>
+                    </div>
+                    <h3 class="sidebar__name"><?= htmlspecialchars($_SESSION['name']) ?></h3>
+                    <span class="sidebar__role">Student</span>
                 </div>
-
-                <div class="nav-group">
-                    <div class="nav-group-title"><?php echo t('administration'); ?></div>
-
-                    <a href="view_user.php" class="nav-item">
-                        <i class="fas fa-users"></i>
-                        <span><?php echo t('students'); ?></span>
-                    </a>
-
-                    <a href="view_admin.php" class="nav-item">
-                        <i class="fas fa-user-shield"></i>
-                        <span><?php echo t('admins'); ?></span>
-                    </a>
-
-                    <a href="orders.php" class="nav-item">
-                        <i class="fas fa-shopping-cart"></i>
-                        <span><?php echo t('orders'); ?></span>
-                        <?php if ($pendingAndShippingOrdersCount > 0): ?>
-                            <span class="nav-badge"><?= $pendingAndShippingOrdersCount ?></span>
-                        <?php endif; ?>
-                    </a>
-
-                    <a href="view_package.php" class="nav-item">
-                        <i class="fas fa-boxes"></i>
-                        <span><?php echo t('packages'); ?></span>
-                    </a>
+                
+                <h4 class="sidebar__title">Main Menu</h4>
+                <ul class="sidebar__menu">
+                    <li>
+                        <a href="#" class="sidebar__link sidebar__link--active">
+                            <span class="sidebar__icon"><i class="fas fa-user"></i></span>
+                            <span>Profile</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="products.php" class="sidebar__link">
+                            <span class="sidebar__icon"><i class="fas fa-store"></i></span>
+                            <span>Products</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="view_cart.php" class="sidebar__link">
+                            <span class="sidebar__icon"><i class="fas fa-shopping-cart"></i></span>
+                            <span>View Cart</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="order_list.php" class="sidebar__link">
+                            <span class="sidebar__icon"><i class="fas fa-clipboard-list"></i></span>
+                            <span>Order List</span>
+                        </a>
+                    </li>
+                </ul>
+                
+                <h4 class="sidebar__title">Account</h4>
+                <ul class="sidebar__menu">
+                    <li>
+                        <a href="settings.php" class="sidebar__link">
+                            <span class="sidebar__icon"><i class="fas fa-cog"></i></span>
+                            <span>Settings</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="logout.php" class="sidebar__link sidebar__link--logout">
+                            <span class="sidebar__icon"><i class="fas fa-sign-out-alt"></i></span>
+                            <span>Logout</span>
+                        </a>
+                    </li>
+                </ul>
+            </aside>
+            
+            <!-- Main Content -->
+            <main class="main">
+                <div class="main__header">
+                    <h1>Dashboard Overview</h1>
+                    <div class="flex gap-sm">
+                        <button class="btn btn--outline" id="helpBtn">
+                            <i class="fas fa-question-circle"></i>
+                            <span>Help</span>
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Student Info Card -->
+                <div class="card card--highlight">
+                    <div class="grid grid-cols-3 gap-md">
+                        <div class="info">
+                            <span class="info__label">Student ID</span>
+                            <span class="info__value"><?= htmlspecialchars($_SESSION['student_id']) ?></span>
+                        </div>
+                        <div class="info">
+                            <span class="info__label">Department</span>
+                            <span class="info__value">Computer Science</span>
+                        </div>
+                        <div class="info">
+                            <span class="info__label">Status</span>
+                            <span class="info__value">
+                                <span class="badge badge--success">Active</span>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Quick Actions -->
+                <div class="card">
+                    <div class="card__header">
+                        <h2>Quick Actions</h2>
+                        <button class="btn btn--outline">
+                            <i class="fas fa-ellipsis-h"></i>
+                        </button>
+                    </div>
                     
-                    <a href="admin_monthly_report.php" class="nav-item">
-                        <i class="fas fa-chart-bar"></i>
-                        <span><?php echo t('monthly_report'); ?></span>
-                    </a>
+                    <div class="grid grid-cols-4 gap-md quick-actions">
+                        <div class="action" onclick="showModal('coursesModal')">
+                            <div class="action__icon"><i class="fas fa-book-open"></i></div>
+                            <div class="font-medium">View Courses</div>
+                        </div>
+                        <div class="action" onclick="showModal('assignmentModal')">
+                            <div class="action__icon"><i class="fas fa-pen-fancy"></i></div>
+                            <div class="font-medium">Submit Assignment</div>
+                        </div>
+                        <div class="action" onclick="showModal('paymentModal')">
+                            <div class="action__icon"><i class="fas fa-money-bill-wave"></i></div>
+                            <div class="font-medium">Pay Fees</div>
+                        </div>
+                        <div class="action" onclick="showModal('calendarModal')">
+                            <div class="action__icon"><i class="fas fa-calendar-alt"></i></div>
+                            <div class="font-medium">View Calendar</div>
+                        </div>
+                    </div>
                 </div>
-            </nav>
-        </aside>
-
-        <!-- Main Content Area -->
-        <main class="main-content">
-            <div class="page-header">
-                <h1 class="page-title"><?php echo t('dashboard'); ?> <?php echo t('overview'); ?></h1>
-                <p class="page-subtitle"><?php echo t('welcome_back'); ?>, <?= htmlspecialchars($admin_name ?? 'Admin') ?>! <?php echo t('happening_today'); ?></p>
-
-                <div class="page-actions">
-                    <div class="date-display">
-                        <i class="fas fa-calendar-alt"></i>
-                        <span><?= date('l, F j, Y') ?></span>
+                
+                <!-- Recent Activities -->
+                <div class="card">
+                    <div class="card__header">
+                        <h2>Recent Activities</h2>
+                        <button class="btn btn--outline">
+                            <i class="fas fa-sync-alt"></i>
+                        </button>
+                    </div>
+                    
+                    <div class="info">
+                        <div class="info__value text-center py-xl">
+                            <i class="fas fa-inbox text-neutral-300" style="font-size: 3rem; margin-bottom: var(--space-sm);"></i>
+                            <p class="text-neutral-500">No recent activities</p>
+                        </div>
                     </div>
                 </div>
-            </div>
-
-            <!-- Quick Actions -->
-            <div class="dashboard-grid">
-                <a href="view_products.php" class="dashboard-card">
-                    <div class="card-header">
-                        <div class="card-icon">
-                            <i class="fas fa-box-open"></i>
-                        </div>
-                        <?php if ($lowStockCount > 0): ?>
-                            <span class="card-badge warning"><?= $lowStockCount ?> <?php echo t('low_stock'); ?></span>
-                        <?php endif; ?>
-                        <h3 class="card-title"><?php echo t('product_management'); ?></h3>
-                        <p class="card-subtitle"><?php echo t('manage_inventory'); ?></p>
-                    </div>
-                    <div class="card-body">
-                        <span class="card-link">
-                            <span><?php echo t('view_products'); ?></span>
-                            <i class="fas fa-chevron-right"></i>
-                        </span>
-                    </div>
-                </a>
-
-                <a href="view_user.php" class="dashboard-card">
-                    <div class="card-header">
-                        <div class="card-icon" style="background-color: var(--primary-100); color: var(--primary-600);">
-                            <i class="fas fa-users"></i>
-                        </div>
-                        <h3 class="card-title"><?php echo t('student_administration'); ?></h3>
-                        <p class="card-subtitle"><?php echo t('manage_student_accounts'); ?></p>
-                    </div>
-                    <div class="card-body">
-                        <span class="card-link">
-                            <span><?php echo t('view_students'); ?></span>
-                            <i class="fas fa-chevron-right"></i>
-                        </span>
-                    </div>
-                </a>
-
-                <a href="orders.php" class="dashboard-card">
-                    <div class="card-header">
-                        <div class="card-icon" style="background-color: rgba(155, 81, 224, 0.1); color: #9b51e0;">
-                            <i class="fas fa-shopping-cart"></i>
-                        </div>
-                        <?php if ($pendingAndShippingOrdersCount > 0): ?>
-                            <span class="card-badge danger"><?= $pendingAndShippingOrdersCount ?> <?php echo t('to_process'); ?></span>
-                        <?php endif; ?>
-                        <h3 class="card-title"><?php echo t('order_processing'); ?></h3>
-                        <p class="card-subtitle"><?php echo t('process_track_orders'); ?></p>
-                    </div>
-                    <div class="card-body">
-                        <span class="card-link">
-                            <span><?php echo t('view_orders'); ?></span>
-                            <i class="fas fa-chevron-right"></i>
-                        </span>
-                    </div>
-                </a>
-
-                <a href="counter.php" class="dashboard-card">
-                    <div class="card-header">
-                        <div class="card-icon" style="background-color: rgba(239, 68, 68, 0.1); color: #ef4444;">
-                            <i class="fas fa-cash-register"></i>
-                        </div>
-                        <h3 class="card-title"><?php echo t('counter_system'); ?></h3>
-                        <p class="card-subtitle"><?php echo t('process_student_purchases'); ?></p>
-                    </div>
-                    <div class="card-body">
-                        <span class="card-link">
-                            <span><?php echo t('go_to_counter'); ?></span>
-                            <i class="fas fa-chevron-right"></i>
-                        </span>
-                    </div>
-                </a>
-
-                <a href="view_admin.php" class="dashboard-card">
-                    <div class="card-header">
-                        <div class="card-icon" style="background-color: rgba(16, 185, 129, 0.1); color: #10b981;">
-                            <i class="fas fa-user-shield"></i>
-                        </div>
-                        <h3 class="card-title"><?php echo t('admin_management'); ?></h3>
-                        <p class="card-subtitle"><?php echo t('manage_admin_accounts'); ?></p>
-                    </div>
-                    <div class="card-body">
-                        <span class="card-link">
-                            <span><?php echo t('view_admins'); ?></span>
-                            <i class="fas fa-chevron-right"></i>
-                        </span>
-                    </div>
-                </a>
-
-                <a href="view_package.php" class="dashboard-card">
-                    <div class="card-header">
-                        <div class="card-icon" style="background-color: rgba(245, 158, 11, 0.1); color: #f59e0b;">
-                            <i class="fas fa-boxes"></i>
-                        </div>
-                        <h3 class="card-title"><?php echo t('packages_management'); ?></h3>
-                        <p class="card-subtitle"><?php echo t('manage_product_packages'); ?></p>
-                    </div>
-                    <div class="card-body">
-                        <span class="card-link">
-                            <span><?php echo t('view_packages'); ?></span>
-                            <i class="fas fa-chevron-right"></i>
-                        </span>
-                    </div>
-                </a>
-            </div>
-        </main>
-    </div>
-
-    <!-- Footer Section -->
-    <footer class="footer">
-        <div class="footer-content">
-            <div>© <?= date('Y') ?> SMJK Phor Tay. <?php echo t('copyright'); ?></div>
+            </main>
         </div>
-    </footer>
-
-   <script>
-document.addEventListener('DOMContentLoaded', function() {
-    let lastPendingCount = <?= (int)$pendingAndShippingOrdersCount ?>;
-    let lastLowStockCount = <?= (int)$lowStockCount ?>;
-
-    // Toggle sidebar on mobile
-    const menuToggle = document.querySelector('.menu-toggle');
-    const sidebar = document.querySelector('.sidebar');
-    const sidebarOverlay = document.querySelector('.sidebar-overlay');
-
-    menuToggle.addEventListener('click', function() {
-        sidebar.classList.toggle('active');
-        sidebarOverlay.classList.toggle('active');
-    });
-
-    sidebarOverlay.addEventListener('click', function() {
-        sidebar.classList.remove('active');
-        sidebarOverlay.classList.remove('active');
-    });
-
-    // Toggle user dropdown
-    const userDropdown = document.querySelector('.user-dropdown');
-    const userButton = userDropdown.querySelector('.user-button');
-    const dropdownMenu = userDropdown.querySelector('.dropdown-menu');
-
-    userButton.addEventListener('click', function(e) {
-        e.stopPropagation();
-        const isExpanded = userButton.getAttribute('aria-expanded') === 'true';
-        userButton.setAttribute('aria-expanded', !isExpanded);
-        dropdownMenu.classList.toggle('active', !isExpanded);
-    });
-
-    // Toggle language selector
-    const languageSelector = document.querySelector('.language-selector');
-    const languageButton = languageSelector.querySelector('.language-button');
-    const languageMenu = languageSelector.querySelector('.language-menu');
-
-    languageButton.addEventListener('click', function(e) {
-        e.stopPropagation();
-        const isExpanded = languageButton.getAttribute('aria-expanded') === 'true';
-        languageButton.setAttribute('aria-expanded', !isExpanded);
-        languageMenu.classList.toggle('active', !isExpanded);
-    });
-
-    // Language selection
-    const languageItems = document.querySelectorAll('.language-item');
-    languageItems.forEach(item => {
-        item.addEventListener('click', function() {
-            const lang = this.getAttribute('data-lang');
-            window.location.href = `?lang=${lang}`;
-        });
-    });
-
-    // Close dropdowns when clicking outside
-    document.addEventListener('click', function(e) {
-        if (!e.target.closest('.dropdown-menu') && !e.target.closest('.user-button')) {
-            userButton.setAttribute('aria-expanded', 'false');
-            dropdownMenu.classList.remove('active');
+    </div>
+    
+    <!-- Modal Templates -->
+    <!-- Courses Modal -->
+    <div class="modal" id="coursesModal">
+        <div class="modal__content">
+            <div class="modal__header">
+                <h3>Your Courses</h3>
+                <span class="modal__close" onclick="hideModal('coursesModal')">&times;</span>
+            </div>
+            <div class="modal__body">
+                <p>Here are your current courses:</p>
+                <ul class="mt-md" style="list-style-type: none;">
+                    <li class="py-sm border-b border-neutral-200">
+                        <strong>CS101</strong> - Introduction to Programming
+                    </li>
+                    <li class="py-sm border-b border-neutral-200">
+                        <strong>CS201</strong> - Data Structures
+                    </li>
+                    <li class="py-sm border-b border-neutral-200">
+                        <strong>MATH202</strong> - Discrete Mathematics
+                    </li>
+                    <li class="py-sm">
+                        <strong>ENG101</strong> - Academic Writing
+                    </li>
+                </ul>
+            </div>
+            <div class="modal__footer">
+                <button class="btn btn--primary" onclick="hideModal('coursesModal')">Close</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Assignment Modal -->
+    <div class="modal" id="assignmentModal">
+        <div class="modal__content">
+            <div class="modal__header">
+                <h3>Submit Assignment</h3>
+                <span class="modal__close" onclick="hideModal('assignmentModal')">&times;</span>
+            </div>
+            <div class="modal__body">
+                <form>
+                    <div class="form-group">
+                        <label class="form-label">Select Course</label>
+                        <select class="form-control">
+                            <option>CS101 - Introduction to Programming</option>
+                            <option>CS201 - Data Structures</option>
+                            <option>MATH202 - Discrete Mathematics</option>
+                            <option>ENG101 - Academic Writing</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Assignment Title</label>
+                        <input type="text" class="form-control">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Upload File</label>
+                        <div class="border-2 border-dashed border-neutral-300 rounded-md p-lg text-center cursor-pointer">
+                            <i class="fas fa-cloud-upload-alt text-2xl text-neutral-400 mb-sm"></i>
+                            <p class="text-neutral-500">Drag and drop files here or click to browse</p>
+                            <input type="file" class="hidden">
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal__footer">
+                <button class="btn btn--outline" onclick="hideModal('assignmentModal')">Cancel</button>
+                <button class="btn btn--primary">Submit Assignment</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Payment Modal -->
+    <div class="modal" id="paymentModal">
+        <div class="modal__content">
+            <div class="modal__header">
+                <h3>Pay Fees</h3>
+                <span class="modal__close" onclick="hideModal('paymentModal')">&times;</span>
+            </div>
+            <div class="modal__body">
+                <div class="bg-primary-100 p-md rounded-md mb-md">
+                    <h4 class="mb-sm">Outstanding Balance: $1,250.00</h4>
+                    <p class="text-sm">Due Date: August 15, 2023</p>
+                </div>
+                
+                <form>
+                    <div class="form-group">
+                        <label class="form-label">Payment Amount ($)</label>
+                        <input type="number" value="1250.00" class="form-control">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Payment Method</label>
+                        <select class="form-control">
+                            <option>Credit/Debit Card</option>
+                            <option>Bank Transfer</option>
+                            <option>PayPal</option>
+                        </select>
+                    </div>
+                    
+                    <div class="bg-secondary-50 p-md rounded-md">
+                        <p class="text-sm">Your payment will be processed securely. A receipt will be emailed to you after successful payment.</p>
+                    </div>
+                </form>
+            </div>
+            <div class="modal__footer">
+                <button class="btn btn--outline" onclick="hideModal('paymentModal')">Cancel</button>
+                <button class="btn btn--primary">Proceed to Payment</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Calendar Modal -->
+    <div class="modal" id="calendarModal">
+        <div class="modal__content">
+            <div class="modal__header">
+                <h3>Academic Calendar</h3>
+                <span class="modal__close" onclick="hideModal('calendarModal')">&times;</span>
+            </div>
+            <div class="modal__body">
+                <div class="grid grid-cols-7 gap-sm mb-md">
+                    <div class="text-center font-semibold p-xs">Sun</div>
+                    <div class="text-center font-semibold p-xs">Mon</div>
+                    <div class="text-center font-semibold p-xs">Tue</div>
+                    <div class="text-center font-semibold p-xs">Wed</div>
+                    <div class="text-center font-semibold p-xs">Thu</div>
+                    <div class="text-center font-semibold p-xs">Fri</div>
+                    <div class="text-center font-semibold p-xs">Sat</div>
+                    
+                    <!-- Calendar days -->
+                    <div class="text-center p-xs">30</div>
+                    <div class="text-center p-xs">31</div>
+                    <div class="text-center p-xs">1</div>
+                    <div class="text-center p-xs">2</div>
+                    <div class="text-center p-xs">3</div>
+                    <div class="text-center p-xs">4</div>
+                    <div class="text-center p-xs">5</div>
+                    
+                    <div class="text-center p-xs">6</div>
+                    <div class="text-center p-xs">7</div>
+                    <div class="text-center p-xs bg-primary-200 rounded-full">8</div>
+                    <div class="text-center p-xs">9</div>
+                    <div class="text-center p-xs">10</div>
+                    <div class="text-center p-xs">11</div>
+                    <div class="text-center p-xs">12</div>
+                    
+                    <div class="text-center p-xs">13</div>
+                    <div class="text-center p-xs">14</div>
+                    <div class="text-center p-xs bg-secondary-200 rounded-full">15</div>
+                    <div class="text-center p-xs">16</div>
+                    <div class="text-center p-xs">17</div>
+                    <div class="text-center p-xs">18</div>
+                    <div class="text-center p-xs">19</div>
+                    
+                    <div class="text-center p-xs">20</div>
+                    <div class="text-center p-xs">21</div>
+                    <div class="text-center p-xs">22</div>
+                    <div class="text-center p-xs">23</div>
+                    <div class="text-center p-xs">24</div>
+                    <div class="text-center p-xs">25</div>
+                    <div class="text-center p-xs">26</div>
+                    
+                    <div class="text-center p-xs">27</div>
+                    <div class="text-center p-xs">28</div>
+                    <div class="text-center p-xs">29</div>
+                    <div class="text-center p-xs">30</div>
+                    <div class="text-center p-xs">31</div>
+                    <div class="text-center p-xs">1</div>
+                    <div class="text-center p-xs">2</div>
+                </div>
+                
+                <div class="mt-xl">
+                    <h4 class="mb-md">Upcoming Events</h4>
+                    <ul style="list-style-type: none;">
+                        <li class="py-sm border-b border-neutral-200 flex items-center gap-sm">
+                            <div class="w-3 h-3 bg-primary-200 rounded-full"></div>
+                            <div>
+                                <strong>Aug 8</strong> - Semester Begins
+                            </div>
+                        </li>
+                        <li class="py-sm border-b border-neutral-200 flex items-center gap-sm">
+                            <div class="w-3 h-3 bg-secondary-200 rounded-full"></div>
+                            <div>
+                                <strong>Aug 15</strong> - Tuition Due
+                            </div>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+            <div class="modal__footer">
+                <button class="btn btn--primary" onclick="hideModal('calendarModal')">Close</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Help Modal -->
+    <div class="modal" id="helpModal">
+        <div class="modal__content">
+            <div class="modal__header">
+                <h3>Help Center</h3>
+                <span class="modal__close" onclick="hideModal('helpModal')">&times;</span>
+            </div>
+            <div class="modal__body">
+                <h4 class="mb-sm">Frequently Asked Questions</h4>
+                <div class="mb-lg">
+                    <details class="mb-sm border border-neutral-200 rounded-sm p-sm">
+                        <summary class="font-medium cursor-pointer">How do I submit an assignment?</summary>
+                        <p class="mt-sm">Go to the "Submit Assignment" section, select your course, upload your file, and click submit. Make sure to check the file requirements before uploading.</p>
+                    </details>
+                    
+                    <details class="mb-sm border border-neutral-200 rounded-sm p-sm">
+                        <summary class="font-medium cursor-pointer">Where can I view my grades?</summary>
+                        <p class="mt-sm">Grades are available in the "Academic Records" section of your profile. They are typically updated within 7 days after assignment submission.</p>
+                    </details>
+                    
+                    <details class="mb-sm border border-neutral-200 rounded-sm p-sm">
+                        <summary class="font-medium cursor-pointer">How do I pay my tuition fees?</summary>
+                        <p class="mt-sm">You can pay your fees through the "Pay Fees" option in the dashboard. Multiple payment methods are available including credit card and bank transfer.</p>
+                    </details>
+                </div>
+                
+                <h4 class="mb-sm">Contact Support</h4>
+                <p class="mb-md">For additional help, please contact our support team:</p>
+                <ul class="mb-lg" style="list-style-type: none;">
+                    <li class="mb-sm flex items-center gap-sm">
+                        <i class="fas fa-envelope text-neutral-500"></i>
+                        <span>support@studentportal.edu</span>
+                    </li>
+                    <li class="mb-sm flex items-center gap-sm">
+                        <i class="fas fa-phone text-neutral-500"></i>
+                        <span>(123) 456-7890</span>
+                    </li>
+                    <li class="flex items-center gap-sm">
+                        <i class="fas fa-clock text-neutral-500"></i>
+                        <span>Monday-Friday, 9am-5pm</span>
+                    </li>
+                </ul>
+            </div>
+            <div class="modal__footer">
+                <button class="btn btn--primary" onclick="hideModal('helpModal')">Close</button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Modal functions
+        function showModal(modalId) {
+            document.getElementById(modalId).classList.add('modal--active');
+            document.body.style.overflow = 'hidden';
         }
         
-        if (!e.target.closest('.language-menu') && !e.target.closest('.language-button')) {
-            languageButton.setAttribute('aria-expanded', 'false');
-            languageMenu.classList.remove('active');
+        function hideModal(modalId) {
+            document.getElementById(modalId).classList.remove('modal--active');
+            document.body.style.overflow = 'auto';
         }
-    });
-
-    // Check for new orders periodically (both Pending and Shipping)
-    function checkNewOrders() {
-        fetch('check_pending_and_shipping_orders.php')
-            .then(res => res.json())
-            .then(data => {
-                if (typeof data.count !== 'undefined') {
-                    // Update badge in sidebar
-                    let navBadge = document.querySelector('.nav-item[href="orders.php"] .nav-badge');
-                    if (data.count > 0) {
-                        if (!navBadge) {
-                            navBadge = document.createElement('span');
-                            navBadge.className = 'nav-badge';
-                            document.querySelector('.nav-item[href="orders.php"]').appendChild(navBadge);
-                        }
-                        navBadge.textContent = data.count;
-                    } else if (navBadge) {
-                        navBadge.remove();
-                    }
-
-                    // Update badge in dashboard card
-                    let cardBadge = document.querySelector('.dashboard-card:nth-child(3) .card-badge');
-                    if (data.count > 0) {
-                        if (!cardBadge) {
-                            cardBadge = document.createElement('span');
-                            cardBadge.className = 'card-badge danger';
-                            document.querySelector('.dashboard-card:nth-child(3) .card-header').appendChild(cardBadge);
-                        }
-                        cardBadge.textContent = data.count + ' <?php echo t('to_process'); ?>';
-                    } else if (cardBadge) {
-                        cardBadge.remove();
-                    }
-
-                    lastPendingCount = data.count;
-                }
-            })
-            .catch(() => {});
-    }
-
-    // Check for low stock periodically
-    function checkLowStock() {
-        fetch('check_low_stock.php')
-            .then(res => res.json())
-            .then(data => {
-                if (typeof data.count !== 'undefined') {
-                    // Update badge in sidebar
-                    let navBadge = document.querySelector('.nav-item[href="view_products.php"] .nav-badge');
-                    if (data.count > 0) {
-                        if (!navBadge) {
-                            navBadge = document.createElement('span');
-                            navBadge.className = 'nav-badge';
-                            document.querySelector('.nav-item[href="view_products.php"]').appendChild(navBadge);
-                        }
-                        navBadge.textContent = data.count + ' <?php echo t('low_stock'); ?>';
-                    } else if (navBadge) {
-                        navBadge.remove();
-                    }
-
-                    // Update badge in dashboard card
-                    let cardBadge = document.querySelector('.dashboard-card:first-child .card-badge');
-                    if (data.count > 0) {
-                        if (!cardBadge) {
-                            cardBadge = document.createElement('span');
-                            cardBadge.className = 'card-badge warning';
-                            document.querySelector('.dashboard-card:first-child .card-header').appendChild(cardBadge);
-                        }
-                        cardBadge.textContent = data.count + ' <?php echo t('low_stock'); ?>';
-                    } else if (cardBadge) {
-                        cardBadge.remove();
-                    }
-
-                    lastLowStockCount = data.count;
-                }
-            })
-            .catch(() => {});
-    }
-
-    // Check every 30 seconds
-    setInterval(checkNewOrders, 30000);
-    setInterval(checkLowStock, 30000);
-    
-    // Initial check after page load
-    setTimeout(checkNewOrders, 1000);
-    setTimeout(checkLowStock, 1000);
-});
-</script>
+        
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            if (event.target.classList.contains('modal')) {
+                event.target.classList.remove('modal--active');
+                document.body.style.overflow = 'auto';
+            }
+        }
+        
+        // Help button event listener
+        document.getElementById('helpBtn').addEventListener('click', function() {
+            showModal('helpModal');
+        });
+    </script>
 </body>
 </html>
